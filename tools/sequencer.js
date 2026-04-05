@@ -7,7 +7,6 @@ async function main() {
 	const eddsa = await buildEddsa();
 	const F = poseidon.F;
 
-	// GIẢM XUỐNG ĐỂ TEST MƯỢT
 	const DEPTH = 8;
 	const N_TXS = 4;
 
@@ -132,7 +131,6 @@ async function main() {
 	let cumulativeFee = 0n;
 
 	for (let i = 0; i < N_TXS; i++) {
-		// Giao dịch 0, 1 là thực. Còn lại là Padding
 		let isPadding = i >= 2;
 		let enabled = isPadding ? 0n : 1n;
 
@@ -142,9 +140,12 @@ async function main() {
 		let s = state.Alice;
 		let r = state.Bob;
 
+		// VÁ LỖI TẠI ĐÂY: Lưu lại nonce cũ trước khi nó bị biến đổi
+		let old_nonce = s.nonce;
+
 		let senderPath = getPath(s.address);
 		inputJson.sender_balances.push(s.balance.toString());
-		inputJson.sender_nonces.push(s.nonce.toString());
+		inputJson.sender_nonces.push(old_nonce.toString());
 		inputJson.sender_pathElements.push(senderPath.pathElements);
 		inputJson.sender_pathIndices.push(senderPath.pathIndices);
 
@@ -166,14 +167,15 @@ async function main() {
 
 		if (enabled === 1n) {
 			s.balance = sBal_new;
-			s.nonce = sNonce_new;
+			s.nonce = sNonce_new; // S.NONCE BỊ ĐỔI Ở ĐÂY
 			let rBal_new = r.balance + amount;
 			updateTree(r.address, getLeaf(r.x, r.y, rBal_new, r.nonce));
 			r.balance = rBal_new;
 			cumulativeFee += fee;
 		}
 
-		const msgHash = poseidon([r.address, F.e(amount), F.e(fee), F.e(s.nonce)]);
+		// VÁ LỖI TẠI ĐÂY: Ký bằng old_nonce thay vì s.nonce
+		const msgHash = poseidon([r.address, F.e(amount), F.e(fee), F.e(old_nonce)]);
 		const sig = eddsa.signPoseidon(prkAlice, msgHash);
 
 		inputJson.txs_enabled.push(enabled.toString());
@@ -183,7 +185,7 @@ async function main() {
 		inputJson.txs_to_y.push(F.toString(r.y));
 		inputJson.txs_amount.push(amount.toString());
 		inputJson.txs_fee.push(fee.toString());
-		inputJson.txs_nonce.push(s.nonce.toString());
+		inputJson.txs_nonce.push(old_nonce.toString()); // GỬI NONCE CŨ VÀO MẠCH
 		inputJson.txs_sig_R8x.push(F.toString(sig.R8[0]));
 		inputJson.txs_sig_R8y.push(F.toString(sig.R8[1]));
 		inputJson.txs_sig_S.push(sig.S.toString());
@@ -204,7 +206,6 @@ async function main() {
 
 	inputJson.newStateRoot = getRoot();
 
-	// --- Dynamic DA Tree Root ---
 	function nextPowerOf2(n) {
 		let count = 0;
 		if (n > 0 && (n & (n - 1)) === 0) return n;
@@ -232,7 +233,8 @@ async function main() {
 		hashArr([BigInt(inputJson.oldStateRoot), BigInt(inputJson.newStateRoot), daTreeRoot]),
 	);
 
-	const dest = path.join(process.cwd(), 'input.json');
+	// Đổi lại path lưu tùy máy của bạn nhé, tôi giả định lưu ở đây:
+	const dest = path.join(process.cwd(), './ZK/circuits/prove_rollup/input.json');
 	fs.writeFileSync(dest, JSON.stringify(inputJson, null, 2));
 	console.log(`✅ Saved valid SMT input (DEPTH=${DEPTH}, TXS=${N_TXS}) to ${dest}`);
 }
