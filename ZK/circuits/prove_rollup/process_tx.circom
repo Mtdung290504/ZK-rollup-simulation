@@ -42,30 +42,34 @@ template ProcessTx(DEPTH) {
     tx_hash <== txVerifier.msg_hash;
 
     // --- 2. Ràng buộc Logic (Chỉ check khi enabled == 1) ---
+
+    // [BẢO MẬT]: Chống In Tiền bằng Underflow/Overflow
+    // Ép amount và fee phải là số nhỏ (< 64 bits). 
+    // Nếu ai đó ném số âm vào đây (trong Finite Field số âm là con số cực lớn), Num2Bits sẽ báo lỗi.
+    component amtBounds = Num2Bits(64);
+    amtBounds.in <== amount;
+
+    component feeBounds = Num2Bits(64);
+    feeBounds.in <== fee;
+
     // A. Chặn gửi cho chính mình
     component selfX = IsEqual(); selfX.in[0] <== from_x; selfX.in[1] <== to_x;
     component selfY = IsEqual(); selfY.in[0] <== from_y; selfY.in[1] <== to_y;
     component bothSame = AND(); bothSame.a <== selfX.out; bothSame.b <== selfY.out;
-    enabled * bothSame.out === 0; // Nếu enabled=1 thì bothSame phải =0
+    enabled * bothSame.out === 0;
 
-    // B. Check Amount > 0
-    component gtZero = GreaterThan(252);
-    gtZero.in[0] <== amount; gtZero.in[1] <== 0;
-    enabled * (1 - gtZero.out) === 0;
-
-    // C. Check Đủ tiền
+    // B. Check Đủ tiền
     signal total_deduct <== amount + fee;
     component geq = GreaterEqThan(252);
     geq.in[0] <== sender_balance; geq.in[1] <== total_deduct;
     enabled * (1 - geq.out) === 0;
 
-    // D. Check Nonce khớp
+    // C. Check Nonce khớp
     component nonceCheck = IsEqual();
     nonceCheck.in[0] <== nonce; nonceCheck.in[1] <== sender_nonce;
     enabled * (1 - nonceCheck.out) === 0;
 
     // --- 3. SENDER: Cập nhật cây Merkle ---
-    // (Bỏ qua check Address Binding để giảm Constraint, vì JS dùng 32-bit Index cắt ngắn)
     
     signal sender_balance_new <== sender_balance - amount - fee;
     signal sender_nonce_new <== sender_nonce + 1;
