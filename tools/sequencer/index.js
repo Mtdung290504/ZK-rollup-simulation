@@ -7,28 +7,19 @@ async function main() {
 	const eddsa = await buildEddsa();
 	const F = poseidon.F;
 
-	const DEPTH = 8;
+	// Cấu hình khớp với mạch Circom
+	const DEPTH = 6;
 	const N_TXS = 4;
 
-	function hash(left, right) {
-		return poseidon([left, right]);
-	}
-	function hashArr(inputs) {
-		return poseidon(inputs);
-	}
-	function toBig(val) {
-		return BigInt(F.toString(val));
-	}
-	function getAddress(pubX, pubY) {
-		return hashArr([pubX, pubY]);
-	}
-	function getLeaf(pubX, pubY, balance, nonce) {
-		return hashArr([pubX, pubY, F.e(balance), F.e(nonce)]);
-	}
-	function getIndex(addr) {
-		return toBig(addr) & ((1n << BigInt(DEPTH)) - 1n);
-	}
+	// --- Helper Functions ---
+	const hash = (left, right) => poseidon([left, right]);
+	const hashArr = (inputs) => poseidon(inputs);
+	const toBig = (val) => BigInt(F.toString(val));
+	const getAddress = (pubX, pubY) => hashArr([pubX, pubY]);
+	const getLeaf = (pubX, pubY, balance, nonce) => hashArr([pubX, pubY, F.e(balance), F.e(nonce)]);
+	const getIndex = (addr) => toBig(addr) & ((1n << BigInt(DEPTH)) - 1n);
 
+	// --- State Tree Management (Dành cho User/Accounts) ---
 	const emptyLeaf = getLeaf(0n, 0n, 0n, 0n);
 	const zeros = [emptyLeaf];
 	for (let i = 0; i < DEPTH; i++) {
@@ -48,7 +39,6 @@ async function main() {
 			let siblingIndex = isRight ? currentIndex - 1n : currentIndex + 1n;
 			let siblingHash = treeNodes[`${i},${siblingIndex}`];
 			if (siblingHash === undefined) siblingHash = zeros[i];
-
 			pathElements.push(F.toString(siblingHash));
 			currentIndex = currentIndex / 2n;
 		}
@@ -59,7 +49,6 @@ async function main() {
 		let index = getIndex(addr);
 		let addrBits = index.toString(2).padStart(DEPTH, '0').split('').reverse().map(Number);
 		let currentIndex = index;
-
 		treeNodes[`0,${currentIndex}`] = leafValue;
 		let currentHash = leafValue;
 
@@ -79,11 +68,12 @@ async function main() {
 		return currentHash;
 	}
 
-	function getRoot() {
+	const getRoot = () => {
 		let root = treeNodes[`${DEPTH},0`];
 		return root !== undefined ? F.toString(root) : F.toString(zeros[DEPTH]);
-	}
+	};
 
+	// --- 1. Khởi tạo Accounts ---
 	const prkAlice = Buffer.from('01'.repeat(32), 'hex');
 	const prkBob = Buffer.from('02'.repeat(32), 'hex');
 	const prkOp = Buffer.from('03'.repeat(32), 'hex');
@@ -127,36 +117,36 @@ async function main() {
 		receiver_pathIndices: [],
 	};
 
-	let daHashesForTree = [];
+	let daHashesForRolling = [];
 	let cumulativeFee = 0n;
 
+	// --- 2. Xử lý Batch Transactions ---
 	for (let i = 0; i < N_TXS; i++) {
-		let isPadding = i >= 2;
+		let isPadding = i >= 2; // Ví dụ: 2 TX đầu thật, 2 TX sau padding
 		let enabled = isPadding ? 0n : 1n;
-
 		let amount = isPadding ? 0n : 10n;
 		let fee = isPadding ? 0n : 1n;
 
 		let s = state.Alice;
 		let r = state.Bob;
-
-		// VÁ LỖI TẠI ĐÂY: Lưu lại nonce cũ trước khi nó bị biến đổi
 		let old_nonce = s.nonce;
 
+		// Lưu thông tin Sender trước khi update
 		let senderPath = getPath(s.address);
 		inputJson.sender_balances.push(s.balance.toString());
 		inputJson.sender_nonces.push(old_nonce.toString());
 		inputJson.sender_pathElements.push(senderPath.pathElements);
 		inputJson.sender_pathIndices.push(senderPath.pathIndices);
 
-		let sBal_new = s.balance;
-		let sNonce_new = s.nonce;
 		if (enabled === 1n) {
-			sBal_new = s.balance - amount - fee;
-			sNonce_new = s.nonce + 1n;
+			let sBal_new = s.balance - amount - fee;
+			let sNonce_new = s.nonce + 1n;
 			updateTree(s.address, getLeaf(s.x, s.y, sBal_new, sNonce_new));
+			s.balance = sBal_new;
+			s.nonce = sNonce_new;
 		}
 
+		// Lưu thông tin Receiver trước khi update
 		let receiverPath = getPath(r.address);
 		inputJson.receiver_pubKey_x.push(F.toString(r.x));
 		inputJson.receiver_pubKey_y.push(F.toString(r.y));
@@ -166,15 +156,13 @@ async function main() {
 		inputJson.receiver_pathIndices.push(receiverPath.pathIndices);
 
 		if (enabled === 1n) {
-			s.balance = sBal_new;
-			s.nonce = sNonce_new; // S.NONCE BỊ ĐỔI Ở ĐÂY
 			let rBal_new = r.balance + amount;
 			updateTree(r.address, getLeaf(r.x, r.y, rBal_new, r.nonce));
 			r.balance = rBal_new;
 			cumulativeFee += fee;
 		}
 
-		// VÁ LỖI TẠI ĐÂY: Ký bằng old_nonce thay vì s.nonce
+		// Ký giao dịch (Dùng old_nonce)
 		const msgHash = poseidon([r.address, F.e(amount), F.e(fee), F.e(old_nonce)]);
 		const sig = eddsa.signPoseidon(prkAlice, msgHash);
 
@@ -185,14 +173,15 @@ async function main() {
 		inputJson.txs_to_y.push(F.toString(r.y));
 		inputJson.txs_amount.push(amount.toString());
 		inputJson.txs_fee.push(fee.toString());
-		inputJson.txs_nonce.push(old_nonce.toString()); // GỬI NONCE CŨ VÀO MẠCH
+		inputJson.txs_nonce.push(old_nonce.toString());
 		inputJson.txs_sig_R8x.push(F.toString(sig.R8[0]));
 		inputJson.txs_sig_R8y.push(F.toString(sig.R8[1]));
 		inputJson.txs_sig_S.push(sig.S.toString());
 
-		daHashesForTree.push(msgHash);
+		daHashesForRolling.push(msgHash);
 	}
 
+	// --- 3. Thu phí cho Operator ---
 	let opPath = getPath(state.Op.address);
 	inputJson.operator_pub_x = F.toString(state.Op.x);
 	inputJson.operator_pub_y = F.toString(state.Op.y);
@@ -206,37 +195,23 @@ async function main() {
 
 	inputJson.newStateRoot = getRoot();
 
-	function nextPowerOf2(n) {
-		let count = 0;
-		if (n > 0 && (n & (n - 1)) === 0) return n;
-		while (n !== 0) {
-			n >>= 1;
-			count += 1;
-		}
-		return 1 << count;
+	// --- 4. TÍNH ROLLING HASH DA (Khớp với da_hash.circom mới) ---
+	// h[0] = 0; h[i+1] = Poseidon(h[i], tx_hash[i])
+	let currentDaRoot = 0n;
+	for (let i = 0; i < N_TXS; i++) {
+		currentDaRoot = poseidon([currentDaRoot, daHashesForRolling[i]]);
 	}
+	const daTreeRoot = currentDaRoot;
 
-	let N_PAD = nextPowerOf2(N_TXS);
-	let nodeHashes = [...daHashesForTree];
-	for (let i = N_TXS; i < N_PAD; i++) nodeHashes.push(0n);
-
-	let write_idx = N_PAD;
-	let read_idx = 0;
-	for (let i = 0; i < N_PAD - 1; i++) {
-		nodeHashes[write_idx] = hash(nodeHashes[read_idx], nodeHashes[read_idx + 1]);
-		read_idx += 2;
-		write_idx += 1;
-	}
-	const daTreeRoot = nodeHashes[2 * N_PAD - 2];
-
+	// --- 5. Tính Public Input Hash ---
 	inputJson.publicInputHash = F.toString(
 		hashArr([BigInt(inputJson.oldStateRoot), BigInt(inputJson.newStateRoot), daTreeRoot]),
 	);
 
-	// Đổi lại path lưu tùy máy của bạn nhé, tôi giả định lưu ở đây:
-	const dest = path.join(process.cwd(), './ZK/circuits/prove_rollup/input.json');
+	// Xuất file
+	const dest = path.join(process.cwd(), 'ZK/circuits/prove_rollup/input.json');
 	fs.writeFileSync(dest, JSON.stringify(inputJson, null, 2));
-	console.log(`✅ Saved valid SMT input (DEPTH=${DEPTH}, TXS=${N_TXS}) to ${dest}`);
+	console.log(`Input updated with ROLLING HASH DA (N_TXS=${N_TXS}, DEPTH=${DEPTH})`);
 }
 
 main().catch(console.error);

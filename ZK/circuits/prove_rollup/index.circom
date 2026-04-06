@@ -2,14 +2,13 @@ pragma circom 2.1.0;
 
 include "process_tx.circom";
 include "da_hash.circom";
+include "../../circomlib/circuits/bitify.circom";
 
 template BatchRollup(N_TXS, DEPTH) {
-    // PUBLIC
     signal input oldStateRoot;
     signal input newStateRoot;
     signal input publicInputHash;
 
-    // PRIVATE - operator account
     signal input operator_pub_x;
     signal input operator_pub_y;
     signal input operator_balance_old;
@@ -17,8 +16,7 @@ template BatchRollup(N_TXS, DEPTH) {
     signal input operator_pathElements[DEPTH];
     signal input operator_pathIndices[DEPTH];
 
-    // PRIVATE - N_TXS
-    signal input txs_enabled[N_TXS]; // BIẾN MỚI
+    signal input txs_enabled[N_TXS];
     signal input txs_from_x[N_TXS];
     signal input txs_from_y[N_TXS];
     signal input txs_to_x[N_TXS];
@@ -42,7 +40,6 @@ template BatchRollup(N_TXS, DEPTH) {
     signal input receiver_pathElements[N_TXS][DEPTH];
     signal input receiver_pathIndices[N_TXS][DEPTH];
 
-    // --- Xử lý N_TXS ---
     component processors[N_TXS];
     signal roots[N_TXS + 1];
     roots[0] <== oldStateRoot;
@@ -53,7 +50,6 @@ template BatchRollup(N_TXS, DEPTH) {
     for (var i = 0; i < N_TXS; i++) {
         processors[i] = ProcessTx(DEPTH);
         processors[i].enabled <== txs_enabled[i];
-        
         processors[i].from_x <== txs_from_x[i];
         processors[i].from_y <== txs_from_y[i];
         processors[i].to_x <== txs_to_x[i];
@@ -64,7 +60,6 @@ template BatchRollup(N_TXS, DEPTH) {
         processors[i].sig_R8x <== txs_sig_R8x[i];
         processors[i].sig_R8y <== txs_sig_R8y[i];
         processors[i].sig_S <== txs_sig_S[i];
-
         processors[i].sender_balance <== sender_balances[i];
         processors[i].sender_nonce <== sender_nonces[i];
         processors[i].receiver_pubKey_x <== receiver_pubKey_x[i];
@@ -78,15 +73,11 @@ template BatchRollup(N_TXS, DEPTH) {
             processors[i].receiver_pathElements[j] <== receiver_pathElements[i][j];
             processors[i].receiver_pathIndices[j] <== receiver_pathIndices[i][j];
         }
-
         processors[i].currentRoot <== roots[i];
         roots[i + 1] <== processors[i].newRoot;
-
-        // Chỉ cộng phí khi enabled = 1
         fees[i + 1] <== fees[i] + (txs_fee[i] * txs_enabled[i]);
     }
 
-    // --- Update Sequencer's (Fee Collector) Account ---
     component op_leaf_old = AccountLeaf();
     op_leaf_old.pubKey_x <== operator_pub_x;
     op_leaf_old.pubKey_y <== operator_pub_y;
@@ -101,7 +92,9 @@ template BatchRollup(N_TXS, DEPTH) {
     }
 
     signal operator_balance_new <== operator_balance_old + fees[N_TXS];
-    component checkOpBal = Num2Bits(252);
+    
+    // TỐI ƯU: Chỉ dùng 64-bit check cho balance thay vì 252-bit
+    component checkOpBal = Num2Bits(64);
     checkOpBal.in <== operator_balance_new;
 
     component op_leaf_new = AccountLeaf();
@@ -112,14 +105,10 @@ template BatchRollup(N_TXS, DEPTH) {
 
     op_updater.leaf_new <== op_leaf_new.leaf;
     op_updater.root_old === roots[N_TXS];
-    
-    // Ràng buộc root cuối cùng
     op_updater.root_new === newStateRoot;
 
-    // --- Verify Data Availability Hash ---
     component da_hasher = BinaryHashTree(N_TXS);
     for (var i = 0; i < N_TXS; i++) {
-        // Truyền thẳng tx_hash từ processTx sang (Cực nhẹ)
         da_hasher.tx_hashes[i] <== processors[i].tx_hash;
     }
 
@@ -127,9 +116,7 @@ template BatchRollup(N_TXS, DEPTH) {
     root_hash.inputs[0] <== oldStateRoot;
     root_hash.inputs[1] <== newStateRoot;
     root_hash.inputs[2] <== da_hasher.tree_root;
-
     root_hash.out === publicInputHash;
 }
 
-// Chạy 16 TXs, DEPTH = 32
-component main {public [oldStateRoot, newStateRoot, publicInputHash]} = BatchRollup(4, 8);
+component main {public [oldStateRoot, newStateRoot, publicInputHash]} = BatchRollup(4, 6);

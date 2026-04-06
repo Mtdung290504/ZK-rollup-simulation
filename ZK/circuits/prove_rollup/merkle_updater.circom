@@ -1,8 +1,8 @@
 pragma circom 2.1.0;
 
 include "../../circomlib/circuits/poseidon.circom";
-include "../../circomlib/circuits/mux1.circom";
 
+// Tối ưu: Dùng chung Path Elements để tính Root cũ và mới song song
 template MerkleTreeUpdater(DEPTH) {
     signal input leaf_old;
     signal input leaf_new;
@@ -12,56 +12,34 @@ template MerkleTreeUpdater(DEPTH) {
     signal output root_old;
     signal output root_new;
 
-    component poseidon_old[DEPTH];
-    component poseidon_new[DEPTH];
-    component mux_old_left[DEPTH];
-    component mux_old_right[DEPTH];
-    component mux_new_left[DEPTH];
-    component mux_new_right[DEPTH];
+    signal hashes_old[DEPTH + 1];
+    signal hashes_new[DEPTH + 1];
 
-    signal hash_old[DEPTH + 1];
-    signal hash_new[DEPTH + 1];
+    hashes_old[0] <== leaf_old;
+    hashes_new[0] <== leaf_new;
 
-    hash_old[0] <== leaf_old;
-    hash_new[0] <== leaf_new;
+    component poseidons_old[DEPTH];
+    component poseidons_new[DEPTH];
 
     for (var i = 0; i < DEPTH; i++) {
-        // Ràng buộc pathIndices[i] phải là 0 hoặc 1 (boolean constraint)
+        // 1. Ràng buộc 0/1 duy nhất một lần cho mỗi tầng
         pathIndices[i] * (1 - pathIndices[i]) === 0;
 
-        // Tính nhánh cũ (old branch)
-        mux_old_left[i] = Mux1();
-        mux_old_left[i].c[0] <== hash_old[i];
-        mux_old_left[i].c[1] <== pathElements[i];
-        mux_old_left[i].s <== pathIndices[i];
+        // 2. Logic chọn Trái/Phải cho cả Cũ và Mới (Dùng chung pathIndices)
+        // Nếu pathIndices[i] == 0: L = hash, R = sibling
+        // Nếu pathIndices[i] == 1: L = sibling, R = hash
+        
+        poseidons_old[i] = Poseidon(2);
+        poseidons_old[i].inputs[0] <== hashes_old[i] + pathIndices[i] * (pathElements[i] - hashes_old[i]);
+        poseidons_old[i].inputs[1] <== pathElements[i] + pathIndices[i] * (hashes_old[i] - pathElements[i]);
+        hashes_old[i + 1] <== poseidons_old[i].out;
 
-        mux_old_right[i] = Mux1();
-        mux_old_right[i].c[0] <== pathElements[i];
-        mux_old_right[i].c[1] <== hash_old[i];
-        mux_old_right[i].s <== pathIndices[i];
-
-        poseidon_old[i] = Poseidon(2);
-        poseidon_old[i].inputs[0] <== mux_old_left[i].out;
-        poseidon_old[i].inputs[1] <== mux_old_right[i].out;
-        hash_old[i + 1] <== poseidon_old[i].out;
-
-        // Tính nhánh mới (new branch)
-        mux_new_left[i] = Mux1();
-        mux_new_left[i].c[0] <== hash_new[i];
-        mux_new_left[i].c[1] <== pathElements[i];
-        mux_new_left[i].s <== pathIndices[i];
-
-        mux_new_right[i] = Mux1();
-        mux_new_right[i].c[0] <== pathElements[i];
-        mux_new_right[i].c[1] <== hash_new[i];
-        mux_new_right[i].s <== pathIndices[i];
-
-        poseidon_new[i] = Poseidon(2);
-        poseidon_new[i].inputs[0] <== mux_new_left[i].out;
-        poseidon_new[i].inputs[1] <== mux_new_right[i].out;
-        hash_new[i + 1] <== poseidon_new[i].out;
+        poseidons_new[i] = Poseidon(2);
+        poseidons_new[i].inputs[0] <== hashes_new[i] + pathIndices[i] * (pathElements[i] - hashes_new[i]);
+        poseidons_new[i].inputs[1] <== pathElements[i] + pathIndices[i] * (hashes_new[i] - pathElements[i]);
+        hashes_new[i + 1] <== poseidons_new[i].out;
     }
 
-    root_old <== hash_old[DEPTH];
-    root_new <== hash_new[DEPTH];
+    root_old <== hashes_old[DEPTH];
+    root_new <== hashes_new[DEPTH];
 }
