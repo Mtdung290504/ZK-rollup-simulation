@@ -3,7 +3,7 @@ pragma circom 2.1.0;
 include "process_tx.lite.circom";
 
 template BatchRollupLite(N_TXS) {
-    // Inputs của 200 TXs
+    // Inputs của N_TXS
     signal input txs_from[N_TXS];
     signal input txs_to[N_TXS];
     signal input txs_amount[N_TXS];

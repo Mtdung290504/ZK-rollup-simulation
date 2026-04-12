@@ -12,14 +12,23 @@ include "../../circomlib/circuits/mux1.circom";
 template ProcessTx(DEPTH) {
     signal input enabled; // Cờ Padding
 
-    signal input from_x; signal input from_y;
-    signal input to_x; signal input to_y;
-    signal input amount; signal input fee; signal input nonce;
-    signal input sig_R8x; signal input sig_R8y; signal input sig_S;
+    signal input from_x;
+    signal input from_y;
+    signal input to_x;
+    signal input to_y;
+    signal input amount;
+    signal input fee;
+    signal input nonce;
+    signal input sig_R8x;
+    signal input sig_R8y;
+    signal input sig_S;
 
-    signal input sender_balance; signal input sender_nonce;
-    signal input receiver_pubKey_x; signal input receiver_pubKey_y;
-    signal input receiver_balance; signal input receiver_nonce;
+    signal input sender_balance;
+    signal input sender_nonce;
+    signal input receiver_pubKey_x;
+    signal input receiver_pubKey_y;
+    signal input receiver_balance;
+    signal input receiver_nonce;
 
     signal input sender_pathElements[DEPTH];
     signal input sender_pathIndices[DEPTH];
@@ -34,11 +43,17 @@ template ProcessTx(DEPTH) {
     // --- 1. Verify Chữ Ký ---
     component txVerifier = VerifyTxSignature();
     txVerifier.enabled <== enabled;
-    txVerifier.from_x <== from_x; txVerifier.from_y <== from_y;
-    txVerifier.to_x <== to_x; txVerifier.to_y <== to_y;
-    txVerifier.amount <== amount; txVerifier.fee <== fee; txVerifier.nonce <== nonce;
-    txVerifier.sig_R8x <== sig_R8x; txVerifier.sig_R8y <== sig_R8y; txVerifier.sig_S <== sig_S;
-    
+    txVerifier.from_x <== from_x;
+    txVerifier.from_y <== from_y;
+    txVerifier.to_x <== to_x;
+    txVerifier.to_y <== to_y;
+    txVerifier.amount <== amount;
+    txVerifier.fee <== fee; 
+    txVerifier.nonce <== nonce;
+    txVerifier.sig_R8x <== sig_R8x; 
+    txVerifier.sig_R8y <== sig_R8y; 
+    txVerifier.sig_S <== sig_S;
+
     tx_hash <== txVerifier.msg_hash;
 
     // --- 2. Ràng buộc Logic (Chỉ check khi enabled == 1) ---
@@ -53,37 +68,54 @@ template ProcessTx(DEPTH) {
     feeBounds.in <== fee;
 
     // A. Chặn gửi cho chính mình
-    component selfX = IsEqual(); selfX.in[0] <== from_x; selfX.in[1] <== to_x;
-    component selfY = IsEqual(); selfY.in[0] <== from_y; selfY.in[1] <== to_y;
-    component bothSame = AND(); bothSame.a <== selfX.out; bothSame.b <== selfY.out;
-    enabled * bothSame.out === 0;
+    // @deprecated - Chỉ ảnh hưởng đến kinh tế cá nhân người gửi hoặc tài nguyên của chính sequencer
+    // Để backend filter là đủ
+    // component selfX = IsEqual();
+    // selfX.in[0] <== from_x; 
+    // selfX.in[1] <== to_x;
+    // component selfY = IsEqual();
+    // selfY.in[0] <== from_y; 
+    // selfY.in[1] <== to_y;
+    // component bothSame = AND();
+    // bothSame.a <== selfX.out; 
+    // bothSame.b <== selfY.out;
+    // enabled * bothSame.out === 0;
 
     // B. Check Đủ tiền
     signal total_deduct <== amount + fee;
     component geq = GreaterEqThan(252);
-    geq.in[0] <== sender_balance; geq.in[1] <== total_deduct;
+    geq.in[0] <== sender_balance;
+    geq.in[1] <== total_deduct;
     enabled * (1 - geq.out) === 0;
 
     // C. Check Nonce khớp
     component nonceCheck = IsEqual();
-    nonceCheck.in[0] <== nonce; nonceCheck.in[1] <== sender_nonce;
+    nonceCheck.in[0] <== nonce;
+    nonceCheck.in[1] <== sender_nonce;
     enabled * (1 - nonceCheck.out) === 0;
 
     // --- 3. SENDER: Cập nhật cây Merkle ---
     
+    // Tính balance & nonce của sender sau giao dịch
     signal sender_balance_new <== sender_balance - amount - fee;
     signal sender_nonce_new <== sender_nonce + 1;
 
+    // Tạo leaf cũ và mới
     component sender_leaf_old = AccountLeaf();
-    sender_leaf_old.pubKey_x <== from_x; sender_leaf_old.pubKey_y <== from_y;
-    sender_leaf_old.balance <== sender_balance; sender_leaf_old.nonce <== sender_nonce;
+    sender_leaf_old.pubKey_x <== from_x; 
+    sender_leaf_old.pubKey_y <== from_y;
+    sender_leaf_old.balance <== sender_balance;
+    sender_leaf_old.nonce <== sender_nonce;
 
+    // Cập nhật cây Merkle
     component sender_updater = MerkleTreeUpdater(DEPTH);
     sender_updater.leaf_old <== sender_leaf_old.leaf;
     
     component sender_leaf_new = AccountLeaf();
-    sender_leaf_new.pubKey_x <== from_x; sender_leaf_new.pubKey_y <== from_y;
-    sender_leaf_new.balance <== sender_balance_new; sender_leaf_new.nonce <== sender_nonce_new;
+    sender_leaf_new.pubKey_x <== from_x; 
+    sender_leaf_new.pubKey_y <== from_y;
+    sender_leaf_new.balance <== sender_balance_new;
+    sender_leaf_new.nonce <== sender_nonce_new;
     sender_updater.leaf_new <== sender_leaf_new.leaf;
 
     for (var i = 0; i < DEPTH; i++) {
@@ -99,34 +131,60 @@ template ProcessTx(DEPTH) {
 
     signal intermediateRoot <== sender_updater.root_new;
 
-    // --- 4. ZERO LEAF HANDLING CHO RECEIVER (Chặn In Tiền) ---
-    component receiverExists = IsZero();
-    receiverExists.in <== receiver_pubKey_x;
+    // --- 4. KIỂM TRA NGƯỜI NHẬN ---
+    // Tính toán lá cũ của Receiver dựa trên số liệu Sequencer cung cấp
+    component receiver_leaf_old = AccountLeaf();
+    receiver_leaf_old.pubKey_x <== receiver_pubKey_x; 
+    receiver_leaf_old.pubKey_y <== receiver_pubKey_y;
+    receiver_leaf_old.balance <== receiver_balance; 
+    receiver_leaf_old.nonce <== receiver_nonce;
 
-    component muxX = Mux1(); muxX.c[0] <== receiver_pubKey_x; muxX.c[1] <== to_x; muxX.s <== receiverExists.out;
-    component muxY = Mux1(); muxY.c[0] <== receiver_pubKey_y; muxY.c[1] <== to_y; muxY.s <== receiverExists.out;
-    signal final_receiver_x <== muxX.out;
-    signal final_receiver_y <== muxY.out;
+    // Mã băm của một "Ví rỗng" đã precompute để tối ưu constraints: Poseidon(0,0,0,0)
+    var EMPTY_LEAF = 2351654555892372227640888372176282444150254868378439619268573230312091195718;
 
-    // VÁ LỖ HỔNG IN TIỀN: Ép balance và nonce cũ về 0 nếu tài khoản mới
-    component muxBal = Mux1(); muxBal.c[0] <== receiver_balance; muxBal.c[1] <== 0; muxBal.s <== receiverExists.out;
-    component muxNonce = Mux1(); muxNonce.c[0] <== receiver_nonce; muxNonce.c[1] <== 0; muxNonce.s <== receiverExists.out;
+    // So sánh: Cái lá Sequencer đưa vào có CHÍNH XÁC là lá rỗng không?
+    component isNewAccount = IsEqual();
+    isNewAccount.in[0] <== receiver_leaf_old.leaf;
+    isNewAccount.in[1] <== EMPTY_LEAF;
+
+    // [RÀNG BUỘC SINH TỬ]: NẾU TÀI KHOẢN ĐÃ TỒN TẠI (isNewAccount == 0)
+    // Thì pubKey do Sequencer cung cấp BẮT BUỘC phải khớp với to_x, to_y của chữ ký
+    component checkRx = ForceEqualIfEnabled();
+    checkRx.enabled <== enabled * (1 - isNewAccount.out);
+    checkRx.in[0] <== receiver_pubKey_x;
+    checkRx.in[1] <== to_x;
+
+    component checkRy = ForceEqualIfEnabled();
+    checkRy.enabled <== enabled * (1 - isNewAccount.out);
+    checkRy.in[0] <== receiver_pubKey_y;
+    checkRy.in[1] <== to_y;
+
+    // Nếu là ví mới, tự động ép balance và nonce về 0 để tính toán leaf mới an toàn
+    // Tránh thằng seq in tiền vào tài khoản mới
+    // Mux1: Nếu s=1 thì lấy c[1], nếu s=0 thì lấy c[0]
+    component muxBal = Mux1(); muxBal.c[0] <== receiver_balance; muxBal.c[1] <== 0; muxBal.s <== isNewAccount.out;
+    component muxNonce = Mux1(); muxNonce.c[0] <== receiver_nonce; muxNonce.c[1] <== 0; muxNonce.s <== isNewAccount.out;
+
     signal safe_receiver_balance <== muxBal.out;
     signal safe_receiver_nonce <== muxNonce.out;
+
+    // Lấy đúng địa chỉ đích do người dùng ký (to_x, to_y) để gán cho ví mới
+    signal final_receiver_x <== to_x;
+    signal final_receiver_y <== to_y;
 
     // --- 5. RECEIVER: Cập nhật cây Merkle ---
     signal receiver_balance_new <== safe_receiver_balance + amount;
 
-    component receiver_leaf_old = AccountLeaf();
-    receiver_leaf_old.pubKey_x <== receiver_pubKey_x; receiver_leaf_old.pubKey_y <== receiver_pubKey_y;
-    receiver_leaf_old.balance <== safe_receiver_balance; receiver_leaf_old.nonce <== safe_receiver_nonce;
-
     component receiver_updater = MerkleTreeUpdater(DEPTH);
     receiver_updater.leaf_old <== receiver_leaf_old.leaf;
 
+    // Đóng gói lá mới cho Receiver
     component receiver_leaf_new = AccountLeaf();
-    receiver_leaf_new.pubKey_x <== final_receiver_x; receiver_leaf_new.pubKey_y <== final_receiver_y;
-    receiver_leaf_new.balance <== receiver_balance_new; receiver_leaf_new.nonce <== safe_receiver_nonce;
+    receiver_leaf_new.pubKey_x <== final_receiver_x; 
+    receiver_leaf_new.pubKey_y <== final_receiver_y;
+    receiver_leaf_new.balance <== receiver_balance_new; 
+    receiver_leaf_new.nonce <== safe_receiver_nonce;
+    
     receiver_updater.leaf_new <== receiver_leaf_new.leaf;
 
     for (var i = 0; i < DEPTH; i++) {
@@ -134,15 +192,19 @@ template ProcessTx(DEPTH) {
         receiver_updater.pathIndices[i] <== receiver_pathIndices[i];
     }
 
+    // Nối Gốc: Gốc cũ của Receiver phải khớp với Gốc mới của Sender
+    // Vì sender trừ tiền xong, trạng thái thay đổi, phải dùng cái root state đó bỏ vào làm old của receiver
     component checkReceiverRoot = ForceEqualIfEnabled();
     checkReceiverRoot.enabled <== enabled;
     checkReceiverRoot.in[0] <== receiver_updater.root_old;
     checkReceiverRoot.in[1] <== intermediateRoot;
 
-    // --- 6. XUẤT ROOT THEO ENABLED ---
+    // 6. Xuất ROOT theo ENABLED
+    // Vì nếu enabled=0 thì giao dịch này là giao dịch pad, coi như một giao dịch rác
+    // Không cập nhật state root bằng giao dịch rác
     component rootMux = Mux1();
-    rootMux.c[0] <== currentRoot;               // Nếu Padding: Giữ nguyên Root cũ
-    rootMux.c[1] <== receiver_updater.root_new; // Nếu Thực: Lấy Root mới
+    rootMux.c[0] <== currentRoot;               // Nếu Padding: Giữ nguyên Root cũ của mạng
+    rootMux.c[1] <== receiver_updater.root_new; // Nếu Thực: Lấy Root mới nhất
     rootMux.s <== enabled;
 
     newRoot <== rootMux.out;

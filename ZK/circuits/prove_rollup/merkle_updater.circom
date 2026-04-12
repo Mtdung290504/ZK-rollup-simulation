@@ -4,17 +4,22 @@ include "../../circomlib/circuits/poseidon.circom";
 
 // Tối ưu: Dùng chung Path Elements để tính Root cũ và mới song song
 template MerkleTreeUpdater(DEPTH) {
+    // 1. Đầu vào:
+    // Lá cũ, Lá mới, Các nút anh em (Elements), Trái/Phải (Indices)
     signal input leaf_old;
     signal input leaf_new;
     signal input pathElements[DEPTH];
     signal input pathIndices[DEPTH];
 
+    // 2. Đầu ra: Gốc cũ và Gốc mới
     signal output root_old;
     signal output root_new;
 
+    // Mảng lưu trữ các giá trị hash trong quá trình tính toán
     signal hashes_old[DEPTH + 1];
     signal hashes_new[DEPTH + 1];
 
+    // Khởi tạo: Gán giá trị lá vào vị trí đầu tiên của mảng
     hashes_old[0] <== leaf_old;
     hashes_new[0] <== leaf_new;
 
@@ -26,8 +31,10 @@ template MerkleTreeUpdater(DEPTH) {
         pathIndices[i] * (1 - pathIndices[i]) === 0;
 
         // 2. Logic chọn Trái/Phải cho cả Cũ và Mới (Dùng chung pathIndices)
+        // Result = A + Index * (B - A)
         // Nếu pathIndices[i] == 0: L = hash, R = sibling
         // Nếu pathIndices[i] == 1: L = sibling, R = hash
+        // Rườm rà vậy là do cái này không có if/else
         
         poseidons_old[i] = Poseidon(2);
         poseidons_old[i].inputs[0] <== hashes_old[i] + pathIndices[i] * (pathElements[i] - hashes_old[i]);

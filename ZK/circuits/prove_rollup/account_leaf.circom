@@ -2,7 +2,16 @@ pragma circom 2.1.0;
 
 include "../../circomlib/circuits/poseidon.circom";
 
-// Tính Leaf Value của một account
+/**
+ * Tính Leaf Value của một account
+ *
+ * @param pubKey_x - public key X
+ * @param pubKey_y - public key Y
+ * @param balance - số dư hiện tại
+ * @param nonce - nonce hiện tại
+ *
+ * @return leaf - Poseidon(pubKey_x, pubKey_y, balance, nonce)
+ */
 template AccountLeaf() {
     signal input pubKey_x;  // public key X
     signal input pubKey_y;  // public key Y

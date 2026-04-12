@@ -78,17 +78,17 @@ template BatchRollup(N_TXS, DEPTH) {
         fees[i + 1] <== fees[i] + (txs_fee[i] * txs_enabled[i]);
     }
 
-    component op_leaf_old = AccountLeaf();
-    op_leaf_old.pubKey_x <== operator_pub_x;
-    op_leaf_old.pubKey_y <== operator_pub_y;
-    op_leaf_old.balance <== operator_balance_old;
-    op_leaf_old.nonce <== operator_nonce;
+    component sequencer_leaf_old = AccountLeaf();
+    sequencer_leaf_old.pubKey_x <== operator_pub_x;
+    sequencer_leaf_old.pubKey_y <== operator_pub_y;
+    sequencer_leaf_old.balance <== operator_balance_old;
+    sequencer_leaf_old.nonce <== operator_nonce;
 
-    component op_updater = MerkleTreeUpdater(DEPTH);
-    op_updater.leaf_old <== op_leaf_old.leaf;
+    component sequencer_updater = MerkleTreeUpdater(DEPTH);
+    sequencer_updater.leaf_old <== sequencer_leaf_old.leaf;
     for (var i = 0; i < DEPTH; i++) {
-        op_updater.pathElements[i] <== operator_pathElements[i];
-        op_updater.pathIndices[i] <== operator_pathIndices[i];
+        sequencer_updater.pathElements[i] <== operator_pathElements[i];
+        sequencer_updater.pathIndices[i] <== operator_pathIndices[i];
     }
 
     signal operator_balance_new <== operator_balance_old + fees[N_TXS];
@@ -97,15 +97,15 @@ template BatchRollup(N_TXS, DEPTH) {
     component checkOpBal = Num2Bits(64);
     checkOpBal.in <== operator_balance_new;
 
-    component op_leaf_new = AccountLeaf();
-    op_leaf_new.pubKey_x <== operator_pub_x;
-    op_leaf_new.pubKey_y <== operator_pub_y;
-    op_leaf_new.balance <== operator_balance_new;
-    op_leaf_new.nonce <== operator_nonce;
+    component sequencer_leaf_new = AccountLeaf();
+    sequencer_leaf_new.pubKey_x <== operator_pub_x;
+    sequencer_leaf_new.pubKey_y <== operator_pub_y;
+    sequencer_leaf_new.balance <== operator_balance_new;
+    sequencer_leaf_new.nonce <== operator_nonce;
 
-    op_updater.leaf_new <== op_leaf_new.leaf;
-    op_updater.root_old === roots[N_TXS];
-    op_updater.root_new === newStateRoot;
+    sequencer_updater.leaf_new <== sequencer_leaf_new.leaf;
+    sequencer_updater.root_old === roots[N_TXS];
+    sequencer_updater.root_new === newStateRoot;
 
     component da_hasher = BinaryHashTree(N_TXS);
     for (var i = 0; i < N_TXS; i++) {
@@ -119,4 +119,5 @@ template BatchRollup(N_TXS, DEPTH) {
     root_hash.out === publicInputHash;
 }
 
-component main {public [oldStateRoot, newStateRoot, publicInputHash]} = BatchRollup(4, 6);
+// oldStateRoot với newStateRoot được truyền thẳng vào param gọi smart contract
+component main {public [publicInputHash]} = BatchRollup(4, 6);
