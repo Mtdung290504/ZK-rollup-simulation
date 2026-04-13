@@ -93,8 +93,10 @@ template BatchRollup(N_TXS, DEPTH) {
 
     signal operator_balance_new <== operator_balance_old + fees[N_TXS];
     
-    // TỐI ƯU: Chỉ dùng 64-bit check cho balance thay vì 252-bit
-    component checkOpBal = Num2Bits(64);
+    component checkTotalFee = Num2Bits(128);
+    checkTotalFee.in <== fees[N_TXS];
+
+    component checkOpBal = Num2Bits(128);
     checkOpBal.in <== operator_balance_new;
 
     component sequencer_leaf_new = AccountLeaf();
@@ -120,4 +122,6 @@ template BatchRollup(N_TXS, DEPTH) {
 }
 
 // oldStateRoot với newStateRoot được truyền thẳng vào param gọi smart contract
+// Cùng 1 calldata nhưng vấn đề là ở phí gas cho phép verify, khi số lượng public input nhiều
+// => Tốn nhiều phép ECC hơn => tốn gas hơn
 component main {public [publicInputHash]} = BatchRollup(4, 6);

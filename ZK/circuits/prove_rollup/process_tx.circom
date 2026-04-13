@@ -59,13 +59,19 @@ template ProcessTx(DEPTH) {
     // --- 2. Ràng buộc Logic (Chỉ check khi enabled == 1) ---
 
     // [BẢO MẬT]: Chống In Tiền bằng Underflow/Overflow
-    // Ép amount và fee phải là số nhỏ (< 64 bits). 
     // Nếu ai đó ném số âm vào đây (trong Finite Field số âm là con số cực lớn), Num2Bits sẽ báo lỗi.
-    component amtBounds = Num2Bits(64);
+    component amtBounds = Num2Bits(128);
     amtBounds.in <== amount;
 
-    component feeBounds = Num2Bits(64);
+    component feeBounds = Num2Bits(128);
     feeBounds.in <== fee;
+
+    // Chống tràn số balance với nonce (dù nonce hiếm)
+    component balBounds = Num2Bits(128);
+    balBounds.in <== sender_balance;
+
+    component nonceBounds = Num2Bits(64);
+    nonceBounds.in <== sender_nonce;
 
     // A. Chặn gửi cho chính mình
     // @deprecated - Chỉ ảnh hưởng đến kinh tế cá nhân người gửi hoặc tài nguyên của chính sequencer
@@ -82,8 +88,10 @@ template ProcessTx(DEPTH) {
     // enabled * bothSame.out === 0;
 
     // B. Check Đủ tiền
+    // Tất cả đều ràng buộc 128-bit, có thể dùng cổng so sánh 129-bit
+    // (Dự phòng 1 bit cho phép cộng amount + fee)
     signal total_deduct <== amount + fee;
-    component geq = GreaterEqThan(252);
+    component geq = GreaterEqThan(129);
     geq.in[0] <== sender_balance;
     geq.in[1] <== total_deduct;
     enabled * (1 - geq.out) === 0;
