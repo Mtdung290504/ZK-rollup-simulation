@@ -1,0 +1,73 @@
+@startuml "ZK-Rollup Sequence (Refined)"
+skinparam maxMessageSize 150
+
+actor User
+participant "L1 Server" as L1
+participant "L2 Server" as L2
+participant "Archive Node" as Archive
+
+== Deposit Flow ==
+User -> L1: deposit(amount)
+activate L1
+L1 -> L1: lockETH()
+L1 -> L1: emit DepositEvent
+L1 --> User: receipt
+deactivate L1
+
+L2 -> L1: fetchDeposits()
+activate L2
+L1 --> L2: deposits[]
+L2 -> L2: executeTreasuryTransfer()
+L2 -> L2: appendTx()
+deactivate L2
+
+== Transfer Flow (Soft Finality) ==
+User -> L2: transfer(to, amount, signature)
+activate L2
+L2 -> L2: validateTx (sig + nonce + balance)
+L2 -> L2: updateState()
+L2 -> L2: appendTx()
+L2 --> User: success
+deactivate L2
+
+== Batching & Proving Flow ==
+L2 -> L2: createBatch()
+activate L2
+L2 -> L2: generateZKProof()
+
+par
+  L2 -> Archive: publishBlobs(batch_id, transactions)
+  L2 -> L1: submitBatch(proof, stateRoot, daRoot)
+end
+
+activate L1
+L1 -> L1: verifyProof()
+L1 -> L1: updateStateRoot()
+L1 --> L2: success
+deactivate L1
+deactivate L2
+
+== Withdrawal Flow ==
+note over User, L2: User sends (User -> Treasury) on L2 and waits for batch inclusion
+
+User -> Archive: getBlobs(batch_id)
+activate Archive
+Archive --> User: transactions[]
+deactivate Archive
+
+User -> User: generateMerkleProof()
+
+User -> L1: withdraw(plaintext, merkleProof, batch_id)
+activate L1
+L1 -> L1: calculateTxHash(plaintext)
+L1 -> L1: checkNullifier()
+
+alt Valid Proof && Receiver == Treasury
+    L1 -> L1: markNullifier()
+    L1 -> L1: unlockETH()
+    L1 --> User: transfer ETH
+else Invalid
+    L1 --> User: error
+end
+deactivate L1
+@enduml

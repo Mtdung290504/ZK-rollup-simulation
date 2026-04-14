@@ -39,7 +39,7 @@ const INITIAL_STATE = {
 // 5. Mẫu Giao dịch Test (Mock Transaction Template)
 // Lưu ý: Đây là kịch bản giả lập 2 giao dịch THẬT và các giao dịch CÒN LẠI là PADDING (ẢO).
 const MOCK_TX = {
-	REAL_AMOUNT: -10n,
+	REAL_AMOUNT: 10n,
 	REAL_FEE: 1n,
 	PADDING_AMOUNT: 0n,
 	PADDING_FEE: 0n,

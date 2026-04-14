@@ -1,0 +1,48 @@
+@startuml "Withdraw Flow (L2 -> L1)"
+skinparam style strictuml
+
+|User|
+start
+:Sign Withdraw TX (User → Treasury);
+
+|L2 Server|
+:Validate Transaction;
+:Update L2 State (Deduct Balance, Increase Nonce);
+:Append to Transaction List;
+
+|L2 Server|
+:Group Transactions into Batch;
+:Generate ZK Proof;
+
+fork
+  |L2 Server|
+  :Submit Proof and Roots;
+  |L1 Server|
+  :Verify ZK Proof;
+  :Update State Root & DA Root;
+fork again
+  |L2 Server|
+  :Publish DA Blobs;
+  |Archive Node|
+  :Store DA Blobs;
+end fork
+
+|User|
+:Fetch DA Blobs;
+:Generate Merkle Proof;
+:Submit Withdrawal Request;
+
+|L1 Server|
+if (Merkle Proof Valid?) then (yes)
+  if (Receiver == Treasury?) then (yes)
+    :Mark Nullifier;
+    :Unlock ETH to User;
+  else (no)
+    :Reject Withdrawal;
+  endif
+else (no)
+  :Reject Withdrawal;
+endif
+
+stop
+@enduml

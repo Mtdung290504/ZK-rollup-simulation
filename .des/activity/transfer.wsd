@@ -1,0 +1,31 @@
+@startuml "Transfer Flow (L2 -> L2)"
+skinparam style strictuml
+
+|User|
+start
+:Sign Transfer TX;
+
+|L2 Server|
+:Validate Transaction;
+:Update L2 State; (Deduct Balance, Increase Nonce);
+:Append to Transaction List;
+
+|L2 Server|
+:Group Transactions into Batch;
+:Generate ZK Proof;
+
+fork
+  |L2 Server|
+  :Publish DA Blobs;
+  |Archive Node|
+  :Store DA Blobs;
+fork again
+  |L2 Server|
+  :Submit Proof and Roots;
+  |L1 Server|
+  :Verify ZK Proof;
+  :Update State Root & DA Root;
+end fork
+
+stop
+@enduml

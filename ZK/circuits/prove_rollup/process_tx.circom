@@ -40,7 +40,7 @@ template ProcessTx(DEPTH) {
     signal output newRoot;
     signal output tx_hash; // Xuất hash ra cho DA Tree
 
-    // --- 1. Verify Chữ Ký ---
+    // 1. Verify Chữ Ký
     component txVerifier = VerifyTxSignature();
     txVerifier.enabled <== enabled;
     txVerifier.from_x <== from_x;
@@ -56,22 +56,16 @@ template ProcessTx(DEPTH) {
 
     tx_hash <== txVerifier.msg_hash;
 
-    // --- 2. Ràng buộc Logic (Chỉ check khi enabled == 1) ---
+    // 2. Ràng buộc Logic (Chỉ check khi enabled == 1)
 
-    // [BẢO MẬT]: Chống In Tiền bằng Underflow/Overflow
+    // Chống In Tiền bằng Underflow/Overflow amount với fee
     // Nếu ai đó ném số âm vào đây (trong Finite Field số âm là con số cực lớn), Num2Bits sẽ báo lỗi.
-    component amtBounds = Num2Bits(128);
-    amtBounds.in <== amount;
-
-    component feeBounds = Num2Bits(128);
-    feeBounds.in <== fee;
+    component amtBounds = Num2Bits(128); amtBounds.in <== amount;
+    component feeBounds = Num2Bits(128); feeBounds.in <== fee;
 
     // Chống tràn số balance với nonce (dù nonce hiếm)
-    component balBounds = Num2Bits(128);
-    balBounds.in <== sender_balance;
-
-    component nonceBounds = Num2Bits(64);
-    nonceBounds.in <== sender_nonce;
+    component balBounds = Num2Bits(128); balBounds.in <== sender_balance;
+    component nonceBounds = Num2Bits(64); nonceBounds.in <== sender_nonce;
 
     // A. Chặn gửi cho chính mình
     // @deprecated - Chỉ ảnh hưởng đến kinh tế cá nhân người gửi hoặc tài nguyên của chính sequencer
@@ -88,10 +82,12 @@ template ProcessTx(DEPTH) {
     // enabled * bothSame.out === 0;
 
     // B. Check Đủ tiền
-    // Tất cả đều ràng buộc 128-bit, có thể dùng cổng so sánh 129-bit
+    // Tất cả đều ràng buộc 128-bit, thông thường dùng cổng so sánh 129-bit
     // (Dự phòng 1 bit cho phép cộng amount + fee)
+    // NHƯNG, sender_balance đã là 128, nếu amount + fee cần đến 129 thì nó lớn hơn balance
+    // => Bất hợp pháp, dùng GreaterEqThan(128) là đủ vì tổng tới 129 nó nổ luôn vì đường nào cũng reject
     signal total_deduct <== amount + fee;
-    component geq = GreaterEqThan(129);
+    component geq = GreaterEqThan(128);
     geq.in[0] <== sender_balance;
     geq.in[1] <== total_deduct;
     enabled * (1 - geq.out) === 0;
@@ -102,7 +98,7 @@ template ProcessTx(DEPTH) {
     nonceCheck.in[1] <== sender_nonce;
     enabled * (1 - nonceCheck.out) === 0;
 
-    // --- 3. SENDER: Cập nhật cây Merkle ---
+    // 3. SENDER: Cập nhật cây Merkle
     
     // Tính balance & nonce của sender sau giao dịch
     signal sender_balance_new <== sender_balance - amount - fee;
@@ -139,7 +135,7 @@ template ProcessTx(DEPTH) {
 
     signal intermediateRoot <== sender_updater.root_new;
 
-    // --- 4. KIỂM TRA NGƯỜI NHẬN ---
+    // 4. KIỂM TRA NGƯỜI NHẬN
     // Tính toán lá cũ của Receiver dựa trên số liệu Sequencer cung cấp
     component receiver_leaf_old = AccountLeaf();
     receiver_leaf_old.pubKey_x <== receiver_pubKey_x; 
@@ -155,7 +151,6 @@ template ProcessTx(DEPTH) {
     isNewAccount.in[0] <== receiver_leaf_old.leaf;
     isNewAccount.in[1] <== EMPTY_LEAF;
 
-    // [RÀNG BUỘC SINH TỬ]: NẾU TÀI KHOẢN ĐÃ TỒN TẠI (isNewAccount == 0)
     // Thì pubKey do Sequencer cung cấp BẮT BUỘC phải khớp với to_x, to_y của chữ ký
     component checkRx = ForceEqualIfEnabled();
     checkRx.enabled <== enabled * (1 - isNewAccount.out);
@@ -180,7 +175,7 @@ template ProcessTx(DEPTH) {
     signal final_receiver_x <== to_x;
     signal final_receiver_y <== to_y;
 
-    // --- 5. RECEIVER: Cập nhật cây Merkle ---
+    // 5. RECEIVER: Cập nhật cây Merkle
     signal receiver_balance_new <== safe_receiver_balance + amount;
 
     component receiver_updater = MerkleTreeUpdater(DEPTH);
