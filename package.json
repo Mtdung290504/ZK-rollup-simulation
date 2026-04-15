@@ -12,6 +12,9 @@
   "description": "",
   "dependencies": {
     "circomlibjs": "^0.1.7",
-    "ffjavascript": "^0.3.1"
+    "ethers": "^6.16.0",
+    "express": "^5.2.1",
+    "ffjavascript": "^0.3.1",
+    "snarkjs": "^0.7.6"
   }
 }

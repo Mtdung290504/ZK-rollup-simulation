@@ -33,26 +33,32 @@ end fork
 :Submit Withdrawal Request;
 
 |L1 Server|
-if (Merkle Proof Valid?) then (yes)
+:Check Nullifier (not used);
 
-  if (Receiver == Treasury?) then (yes)
+if (Nullifier unused?) then (yes)
 
-    :Check Nullifier (not used);
+  if (Merkle Proof Valid?) then (yes)
 
-    if (Vault Balance >= Amount?) then (yes)
-      :Mark Nullifier;
-      :Deduct Amount from Vault;
-      :Transfer ETH to User (L1 Address);
+    if (Receiver == Treasury?) then (yes)
+
+      if (Vault Balance >= Amount?) then (yes)
+        :Mark Nullifier;
+        :Deduct Amount from Vault;
+        :Transfer ETH to User (L1 Address);
+      else (no)
+        :Reject Withdrawal (Insufficient Vault Balance);
+      endif
+
     else (no)
-      :Reject Withdrawal (Insufficient Vault Balance);
+      :Reject Withdrawal (Invalid Receiver);
     endif
 
   else (no)
-    :Reject Withdrawal (Invalid Receiver);
+    :Reject Withdrawal (Invalid Merkle Proof);
   endif
 
 else (no)
-  :Reject Withdrawal (Invalid Merkle Proof);
+  :Reject Withdrawal (Double-spend: Nullifier already used);
 endif
 
 stop
