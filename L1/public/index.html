@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>L1 Explorer — ZK-Rollup Monitor</title>
+		<style>
+			:root {
+				--bg: #09090b;
+				--surface: rgba(255, 255, 255, 0.05);
+				--border: rgba(255, 255, 255, 0.1);
+				--primary: #8b5cf6;
+				--accent: #10b981;
+				--glow: rgba(139, 92, 246, 0.3);
+				--text-main: #f8fafc;
+				--text-dim: #94a3b8;
+			}
+
+			* {
+				margin: 0;
+				padding: 0;
+				box-sizing: border-box;
+				font-family:
+					'Inter',
+					system-ui,
+					-apple-system,
+					sans-serif;
+			}
+
+			body {
+				background-color: var(--bg);
+				color: var(--text-main);
+				min-height: 100vh;
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				background-image: radial-gradient(circle at 50% -20%, var(--glow), transparent 60%);
+			}
+
+			header {
+				width: 100%;
+				padding: 2rem;
+				text-align: center;
+				border-bottom: 1px solid var(--border);
+				backdrop-filter: blur(10px);
+				background: rgba(9, 9, 11, 0.5);
+				position: sticky;
+				top: 0;
+				z-index: 10;
+			}
+
+			h1 {
+				font-size: 2rem;
+				font-weight: 700;
+				background: linear-gradient(to right, #e2e8f0, var(--primary));
+				-webkit-background-clip: text;
+				background-clip: text;
+				color: transparent;
+				letter-spacing: -0.05em;
+			}
+
+			.container {
+				width: 100%;
+				max-width: 1000px;
+				padding: 2rem;
+				display: grid;
+				grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+				gap: 2rem;
+			}
+
+			.glass-card {
+				background: var(--surface);
+				border: 1px solid var(--border);
+				border-radius: 16px;
+				padding: 2rem;
+				backdrop-filter: blur(16px);
+				box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+				transition:
+					transform 0.3s ease,
+					box-shadow 0.3s ease;
+			}
+
+			.glass-card:hover {
+				transform: translateY(-5px);
+				box-shadow: 0 10px 40px var(--glow);
+				border-color: rgba(139, 92, 246, 0.4);
+			}
+
+			.card-title {
+				font-size: 1.1rem;
+				color: var(--text-dim);
+				margin-bottom: 1rem;
+				text-transform: uppercase;
+				letter-spacing: 0.1em;
+			}
+
+			.stat-value {
+				font-size: 2.5rem;
+				font-weight: 800;
+				margin-bottom: 0.5rem;
+				word-break: break-all;
+			}
+
+			.badge {
+				display: inline-block;
+				padding: 0.25rem 0.75rem;
+				border-radius: 999px;
+				font-size: 0.8rem;
+				font-weight: 600;
+				background: rgba(16, 185, 129, 0.2);
+				color: var(--accent);
+				margin-bottom: 1rem;
+			}
+
+			table {
+				width: 100%;
+				border-collapse: collapse;
+				margin-top: 1rem;
+			}
+
+			th,
+			td {
+				text-align: left;
+				padding: 1rem;
+				border-bottom: 1px solid var(--border);
+			}
+
+			th {
+				color: var(--text-dim);
+				font-weight: 500;
+			}
+
+			.address-box {
+				font-family: monospace;
+				background: rgba(0, 0, 0, 0.3);
+				padding: 0.5rem;
+				border-radius: 6px;
+				font-size: 0.9rem;
+				color: #cbd5e1;
+			}
+
+			@keyframes pulse {
+				0%,
+				100% {
+					opacity: 1;
+				}
+				50% {
+					opacity: 0.5;
+				}
+			}
+
+			.live-indicator {
+				display: inline-flex;
+				align-items: center;
+				gap: 0.5rem;
+				font-size: 0.9rem;
+				color: var(--text-dim);
+				margin-top: 1rem;
+			}
+
+			.live-dot {
+				width: 8px;
+				height: 8px;
+				background-color: var(--accent);
+				border-radius: 50%;
+				animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+			}
+
+			.form-group { margin-bottom: 1rem; }
+			label { display: block; margin-bottom: 0.5rem; color: var(--text-dim); font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+			
+			input {
+				width: 100%;
+				padding: 0.75rem 1rem;
+				background: rgba(0, 0, 0, 0.2);
+				border: 1px solid var(--border);
+				border-radius: 8px;
+				color: white;
+				font-size: 0.9rem;
+				outline: none;
+				transition: border-color 0.2s;
+			}
+
+			input:focus { border-color: var(--primary); }
+
+			button {
+				width: 100%;
+				padding: 0.75rem;
+				background: var(--primary);
+				color: white;
+				border: none;
+				border-radius: 8px;
+				font-size: 1rem;
+				font-weight: 600;
+				cursor: pointer;
+				transition: all 0.2s;
+				margin-top: 0.5rem;
+			}
+
+			button:hover {
+				background: #7c3aed;
+				transform: translateY(-2px);
+			}
+
+			.alert {
+				margin-top: 1rem;
+				padding: 0.75rem;
+				border-radius: 6px;
+				font-size: 0.85rem;
+				display: none;
+			}
+		</style>
+	</head>
+	<body>
+		<header>
+			<h1>L1 Smart Contract Explorer</h1>
+			<div class="live-indicator">
+				<div class="live-dot"></div>
+				Live Polling (3s)
+			</div>
+		</header>
+
+		<div class="container">
+			<div class="glass-card" style="grid-column: 1 / -1">
+				<div class="card-title">Current State Root</div>
+				<div class="badge">ZKP Verified</div>
+				<div class="stat-value address-box" style="font-size: 1.5rem" id="state-root">Loading...</div>
+			</div>
+
+			<div class="glass-card">
+				<div class="card-title">Total Locked ETH</div>
+				<div class="stat-value" id="locked-eth">0.0</div>
+				<p style="color: var(--text-dim)">Native liquidity serving L2</p>
+			</div>
+
+			<div class="glass-card">
+				<div class="card-title">Processed Batches</div>
+				<div class="stat-value" id="batch-count">0</div>
+				<p style="color: var(--text-dim)">Total verified ZK-Rollup batches</p>
+			</div>
+
+			<div class="glass-card">
+				<div class="card-title">Pending Deposits</div>
+				<div class="stat-value" id="pending-count" style="color: #fbbf24">0</div>
+				<p style="color: var(--text-dim)">Waiting for L2 Sequencer sync</p>
+			</div>
+
+			<div class="glass-card" style="grid-column: 1 / -1">
+				<div class="card-title">Vault Balances (L1 Users)</div>
+				<table>
+					<thead>
+						<tr>
+							<th>Address</th>
+							<th>Balance (ETH)</th>
+						</tr>
+					</thead>
+					<tbody id="vault-table">
+						<tr>
+							<td colspan="2" style="text-align: center; color: var(--text-dim)">Loading...</td>
+						</tr>
+					</tbody>
+				</table>
+			</div>
+
+			<!-- L1 Bridge Actions -->
+			<div class="glass-card" style="border-color: rgba(16, 185, 129, 0.3);">
+				<div class="card-title" style="color: var(--accent)">Deposit (L1 -> L2)</div>
+				<div class="form-group">
+					<label>Your L1 Address</label>
+					<input type="text" id="dep-addr" placeholder="0x..." />
+				</div>
+				<div class="form-group" style="display: flex; gap: 0.5rem;">
+					<div style="flex: 1">
+						<label>Receiver L2 PubKey X</label>
+						<input type="text" id="dep-pubx" placeholder="..." />
+					</div>
+					<div style="flex: 1">
+						<label>Receiver L2 PubKey Y</label>
+						<input type="text" id="dep-puby" placeholder="..." />
+					</div>
+				</div>
+				<div class="form-group">
+					<label>Amount (ETH)</label>
+					<input type="number" id="dep-amt" value="10" />
+				</div>
+				<button onclick="doDeposit()" style="background: var(--accent);">Bridge to L2</button>
+				<div id="dep-alert" class="alert"></div>
+			</div>
+
+			<div class="glass-card" style="border-color: rgba(244, 63, 94, 0.3);">
+				<div class="card-title" style="color: #f43f5e">Withdraw (L2 -> L1)</div>
+				<p style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 1rem;">Auto-generates Archive Merkle Proof.</p>
+				<div class="form-group">
+					<label>L1 Receiver Address</label>
+					<input type="text" id="wit-addr" placeholder="0x..." />
+				</div>
+				<div class="form-group" style="display: flex; gap: 0.5rem;">
+					<div style="flex: 1">
+						<label>Batch ID</label>
+						<input type="number" id="wit-batch" value="1" />
+					</div>
+					<div style="flex: 1">
+						<label>TX Index</label>
+						<input type="number" id="wit-index" value="0" />
+					</div>
+				</div>
+				<button onclick="doWithdraw()" style="background: #f43f5e;">Claim on L1</button>
+				<div id="wit-alert" class="alert"></div>
+			</div>
+		</div>
+
+		<script>
+			async function fetchState() {
+				try {
+					const res = await fetch('/contract/state');
+					const data = await res.json();
+
+					document.getElementById('state-root').innerText = data.current_state_root;
+					document.getElementById('locked-eth').innerText = parseFloat(data.total_locked_eth).toFixed(2);
+					document.getElementById('batch-count').innerText = data.active_batches;
+					document.getElementById('pending-count').innerText = data.pending_deposits_count;
+
+					const tbody = document.getElementById('vault-table');
+					tbody.innerHTML = '';
+					for (const [addr, balance] of Object.entries(data.vaults)) {
+						tbody.innerHTML += `
+                        <tr>
+                            <td><span class="address-box">${addr}</span></td>
+                            <td style="font-weight: 600; font-size: 1.1rem">${balance}</td>
+                        </tr>
+                    `;
+					}
+				} catch (e) {
+					console.error('Failed to fetch state:', e);
+					document.getElementById('state-root').innerText = 'Connection Error / Server Down';
+				}
+			}
+
+			// Render init and poll
+			fetchState();
+			setInterval(fetchState, 3000);
+
+			function showAlert(id, msg, isError) {
+				const el = document.getElementById(id);
+				el.style.display = 'block';
+				el.style.backgroundColor = isError ? 'rgba(244, 63, 94, 0.2)' : 'rgba(16, 185, 129, 0.2)';
+				el.style.color = isError ? '#fecdd3' : '#a7f3d0';
+				el.innerText = msg;
+				setTimeout(() => el.style.display = 'none', 5000);
+			}
+
+			async function doDeposit() {
+				const addr = document.getElementById('dep-addr').value;
+				const pubx = document.getElementById('dep-pubx').value;
+				const puby = document.getElementById('dep-puby').value;
+				const amt = document.getElementById('dep-amt').value;
+				if (!addr || !amt || !pubx || !puby) return alert("Fill in address, L2 pub keys, and amount");
+
+				try {
+					const res = await fetch('/contract/deposit', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ l1_address: addr, l2_pub_x: pubx, l2_pub_y: puby, amount: Number(amt) })
+					});
+					const data = await res.json();
+					if (res.ok) {
+						showAlert('dep-alert', `Success! Deposit ID ${data.deposit_id} recorded. L2 will sync shortly.`, false);
+						fetchState();
+					} else {
+						showAlert('dep-alert', data.error || 'Failed', true);
+					}
+				} catch (e) {
+					showAlert('dep-alert', 'Network Error', true);
+				}
+			}
+
+			async function doWithdraw() {
+				const l1_address = document.getElementById('wit-addr').value;
+				const batch_id = document.getElementById('wit-batch').value;
+				const tx_index = document.getElementById('wit-index').value;
+				
+				if (!l1_address || !batch_id || !tx_index) return alert("Fill in all withdrawal fields");
+				showAlert('wit-alert', 'Building Proof & Submitting to L1...', false);
+
+				try {
+					const res = await fetch('/contract/ui/auto-withdraw', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ l1_address, batch_id, tx_index })
+					});
+					const data = await res.json();
+					if (res.ok) {
+						showAlert('wit-alert', `Withdrawal Claimed! Tx Index: ${data.claimed_txIndex}`, false);
+						fetchState();
+					} else {
+						showAlert('wit-alert', data.error || 'Reverted by L1 Contract', true);
+					}
+				} catch (e) {
+					showAlert('wit-alert', 'Network Error', true);
+				}
+			}
+		</script>
+	</body>
+</html>

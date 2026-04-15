@@ -1,0 +1,123 @@
+import express from 'express';
+import { readDB, writeDB } from '../lib/db.js';
+import { getPoseidon, poseidonHashArr } from '../../tools/poseidon.js';
+import { getEddsa, verifyEdDSASignature } from '../lib/eddsa.js';
+import { DenseMerkleTree } from '../../tools/merkle_tree.js';
+import path from 'path';
+
+const cachePath = path.join(process.cwd(), 'ZK', 'circuits', 'zero_hashes_cache.json');
+
+const router = express.Router();
+
+router.post('/transfer', async (req, res) => {
+	const { from_x, from_y, to_x, to_y, amount, fee, nonce, sig_R8x, sig_R8y, sig_S } = req.body;
+
+	if (!from_x || !to_x || !amount || !fee || !nonce || !sig_S) {
+		return res.status(400).json({ error: 'Missing transfer parameters' });
+	}
+
+	const amt = BigInt(amount);
+	const f = BigInt(fee);
+	const nnc = BigInt(nonce);
+
+	try {
+		const db = readDB();
+		const poseidon = await getPoseidon();
+		const eddsa = await getEddsa();
+
+		// 1. Find Sender and Receiver
+		let sender = null, receiver = null, treasury = null;
+		
+		for (const key in db.accounts) {
+			const acc = db.accounts[key];
+			if (acc.pub_x === from_x && acc.pub_y === from_y) sender = acc;
+			if (acc.pub_x === to_x && acc.pub_y === to_y) receiver = acc;
+			if (acc.index === 0) treasury = acc; // Treasury is always at index 0 (assumed rule)
+		}
+
+		if (!sender) return res.status(400).json({ error: 'Sender not found in L2 State' });
+		if (!receiver) return res.status(400).json({ error: 'Receiver not found in L2 State' });
+		if (!treasury) return res.status(500).json({ error: 'System error: Treasury not found' });
+
+		// 2. Validate Nonce
+		if (BigInt(sender.nonce) !== nnc) {
+			return res.status(400).json({ error: `Invalid nonce. Expected ${sender.nonce}` });
+		}
+
+		// 3. Validate Balance
+		if (BigInt(sender.balance) < amt + f) {
+			return res.status(400).json({ error: 'Insufficient L2 balance' });
+		}
+
+		// 4. Validate EdDSA Signature
+		// payload: Hash(Hash(to_x, to_y), amount, fee, nonce)
+		const receiverPubKeyHash = poseidonHashArr(poseidon, [BigInt(to_x), BigInt(to_y)]);
+		const msgHash = poseidonHashArr(poseidon, [receiverPubKeyHash, amt, f, nnc]);
+
+		const isValidSig = verifyEdDSASignature(
+			eddsa,
+			poseidon.F,
+			{ x: from_x, y: from_y },
+			msgHash,
+			{ R8x: sig_R8x, R8y: sig_R8y, S: sig_S }
+		);
+
+		if (!isValidSig) {
+			return res.status(400).json({ error: 'Invalid EdDSA Signature' });
+		}
+
+		// 5. Update Merkle Tree & State (Soft Finality)
+		const tree = new DenseMerkleTree(poseidon, 6, cachePath);
+		tree.loadNodes(db.system.merkle_tree.nodes);
+
+		// 5a. Deduct Sender
+		sender.balance = (BigInt(sender.balance) - amt - f).toString();
+		sender.nonce = (BigInt(sender.nonce) + 1n).toString();
+		let leafSender = poseidonHashArr(poseidon, [BigInt(sender.pub_x), BigInt(sender.pub_y), BigInt(sender.balance), BigInt(sender.nonce)]);
+		tree.updateLeaf(sender.index, leafSender);
+
+		// 5b. Credit Receiver
+		receiver.balance = (BigInt(receiver.balance) + amt).toString();
+		let leafReceiver = poseidonHashArr(poseidon, [BigInt(receiver.pub_x), BigInt(receiver.pub_y), BigInt(receiver.balance), BigInt(receiver.nonce)]);
+		tree.updateLeaf(receiver.index, leafReceiver);
+
+		// 5c. Optional: Attribute Fee to Operator
+		// According to mock it collects dynamically locally. We can leave fee accumulation to batch builder or apply directly to Operator.
+		// For simplicity we let Batch Prover handle it as defined in Sequencer script.
+		// However, for consistency of L2 state query we should update Treasury or Operator here.
+		// Assuming Operator index = 3, we update Operator balance
+		let operator = db.accounts["Operator"];
+		if (operator) {
+			operator.balance = (BigInt(operator.balance) + f).toString();
+			let leafOp = poseidonHashArr(poseidon, [BigInt(operator.pub_x), BigInt(operator.pub_y), BigInt(operator.balance), BigInt(operator.nonce)]);
+			tree.updateLeaf(operator.index, leafOp);
+		}
+
+		// Save tree state
+		db.system.merkle_tree.nodes = tree.exportNodes();
+
+		// 6. Append to Mempool / Transactions
+		const tx = {
+			type: 'transfer',
+			from_x, from_y,
+			to_x, to_y,
+			amount: amount.toString(),
+			fee: fee.toString(),
+			nonce: nonce.toString(),
+			sig_R8x, sig_R8y, sig_S,
+			timestamp: Date.now()
+		};
+		db.transactions.push(tx);
+
+		writeDB(db);
+
+		console.log(`[L2/Transfer] Accepted Tx! From [${sender.index}] to [${receiver.index}] amount ${amt}`);
+
+		return res.status(200).json({ success: true, tx });
+	} catch (err) {
+		console.error('[L2/Transfer] Internal Error:', err);
+		return res.status(500).json({ error: 'Server error' });
+	}
+});
+
+export default router;

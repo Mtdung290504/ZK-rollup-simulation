@@ -12,6 +12,7 @@
   "description": "",
   "dependencies": {
     "circomlibjs": "^0.1.7",
+    "cors": "^2.8.6",
     "ethers": "^6.16.0",
     "express": "^5.2.1",
     "ffjavascript": "^0.3.1",
