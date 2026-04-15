@@ -8,7 +8,8 @@ actor "Archive Node" as Archive
 
 package "L1 Smart Contract" {
   usecase "Deposit ETH" as UC_Deposit
-  usecase "Verify ZK Proof" as UC_Verify
+  usecase "Verify ZK Proof" as UC_VerifyZK
+  usecase "Verify Merkle Proof" as UC_VerifyMerkle
   usecase "Withdraw ETH" as UC_Withdraw
 }
 
@@ -17,6 +18,7 @@ package "L2 System" {
   usecase "Transfer Funds" as UC_Transfer
   usecase "Generate Batch" as UC_Batch
   usecase "Generate ZK Proof" as UC_Prove
+  usecase "Submit Batch to L1" as UC_Submit
 }
 
 package "DA System" {
@@ -34,12 +36,16 @@ Sequencer -- UC_Sync
 Sequencer -- UC_Transfer
 Sequencer -- UC_Batch
 Sequencer -- UC_StoreDA
-Sequencer -- UC_Verify
+Sequencer -- UC_Submit
 
 Archive -- UC_StoreDA
 Archive -- UC_RetrieveDA
 
 ' Includes
 UC_Batch ..> UC_Prove : <<include>>
-UC_Withdraw ..> UC_Verify : <<include>>
+UC_Submit ..> UC_VerifyZK : <<include>>
+
+UC_Withdraw ..> UC_VerifyZK : <<include>>
+UC_Withdraw ..> UC_VerifyMerkle : <<include>>
+
 @enduml

@@ -83,7 +83,7 @@ function getZeroHashes(poseidon, depth) {
 }
 
 // ======================================================================
-// MAIN SEQUENCER LOGIC (CHƯƠNG TRÌNH CHÍNH)
+// MAIN SEQUENCER LOGIC (CHƯƠNG TRÌNH CHÍNH) - ĐÃ REFACTOR SANG ACCOUNT INDEX
 // ======================================================================
 async function main() {
 	const poseidon = await buildPoseidon();
@@ -94,19 +94,20 @@ async function main() {
 	const hash = (left, right) => poseidon([left, right]);
 	const hashArr = (inputs) => poseidon(inputs);
 	const toBig = (val) => BigInt(F.toString(val));
-	const getAddress = (pubX, pubY) => hashArr([pubX, pubY]);
 	const getLeaf = (pubX, pubY, balance, nonce) => hashArr([pubX, pubY, F.e(balance), F.e(nonce)]);
-	const getIndex = (addr) => toBig(addr) & ((1n << BigInt(CONFIG.DEPTH)) - 1n);
+
+	// [FIX_INDEX]: Đã xóa bỏ hoàn toàn hàm getAddress() và getIndex() cắt xén bit.
 
 	// --- State Tree Database ---
 	const zeros = getZeroHashes(poseidon, CONFIG.DEPTH);
 	let treeNodes = {};
 
-	function getPath(addr) {
-		let index = getIndex(addr);
-		let addrBits = index.toString(2).padStart(CONFIG.DEPTH, '0').split('').reverse().map(Number);
+	// [FIX_INDEX]: Hàm getPath giờ nhận trực tiếp Số nguyên (0, 1, 2...) làm index
+	function getPath(index) {
+		// Chuyển index thập phân thành chuỗi nhị phân, lấp đầy số 0 cho đủ DEPTH, rồi đảo ngược
+		let addrBits = BigInt(index).toString(2).padStart(CONFIG.DEPTH, '0').split('').reverse().map(Number);
 		let pathElements = [];
-		let currentIndex = index;
+		let currentIndex = BigInt(index);
 
 		for (let i = 0; i < CONFIG.DEPTH; i++) {
 			let isRight = addrBits[i];
@@ -121,10 +122,10 @@ async function main() {
 		return { pathElements, pathIndices: addrBits };
 	}
 
-	function updateTree(addr, leafValue) {
-		let index = getIndex(addr);
-		let addrBits = index.toString(2).padStart(CONFIG.DEPTH, '0').split('').reverse().map(Number);
-		let currentIndex = index;
+	// [FIX_INDEX]: Hàm updateTree giờ nhận trực tiếp index
+	function updateTree(index, leafValue) {
+		let addrBits = BigInt(index).toString(2).padStart(CONFIG.DEPTH, '0').split('').reverse().map(Number);
+		let currentIndex = BigInt(index);
 
 		treeNodes[`0,${currentIndex}`] = leafValue;
 		let currentHash = leafValue;
@@ -151,7 +152,7 @@ async function main() {
 		return root !== undefined ? F.toString(root) : F.toString(zeros[CONFIG.DEPTH]);
 	};
 
-	// --- 1. Khởi tạo Accounts ---
+	// --- 1. Khởi tạo Accounts với STATIC INDEX (Cấp phát tuần tự) ---
 	const pubA = eddsa.prv2pub(PRIVATE_KEYS.ALICE);
 	const pubB = eddsa.prv2pub(PRIVATE_KEYS.BOB);
 	const pubOp = eddsa.prv2pub(PRIVATE_KEYS.OPERATOR);
@@ -162,30 +163,30 @@ async function main() {
 			y: pubA[1],
 			balance: INITIAL_STATE.ALICE_BALANCE,
 			nonce: 0n,
-			address: getAddress(pubA[0], pubA[1]),
+			index: 0n, // [FIX_INDEX]: Vị trí lá số 0
 		},
 		Bob: {
 			x: pubB[0],
 			y: pubB[1],
 			balance: INITIAL_STATE.BOB_BALANCE,
 			nonce: 0n,
-			address: getAddress(pubB[0], pubB[1]),
+			index: 1n, // [FIX_INDEX]: Vị trí lá số 1
 		},
 		Op: {
 			x: pubOp[0],
 			y: pubOp[1],
 			balance: INITIAL_STATE.OPERATOR_BALANCE,
 			nonce: 0n,
-			address: getAddress(pubOp[0], pubOp[1]),
+			index: 2n, // [FIX_INDEX]: Vị trí lá số 2
 		},
 	};
 
 	// Nạp State khởi đầu vào Cây
-	updateTree(state.Alice.address, getLeaf(state.Alice.x, state.Alice.y, state.Alice.balance, state.Alice.nonce));
-	updateTree(state.Bob.address, getLeaf(state.Bob.x, state.Bob.y, state.Bob.balance, state.Bob.nonce));
-	updateTree(state.Op.address, getLeaf(state.Op.x, state.Op.y, state.Op.balance, state.Op.nonce));
+	updateTree(state.Alice.index, getLeaf(state.Alice.x, state.Alice.y, state.Alice.balance, state.Alice.nonce));
+	updateTree(state.Bob.index, getLeaf(state.Bob.x, state.Bob.y, state.Bob.balance, state.Bob.nonce));
+	updateTree(state.Op.index, getLeaf(state.Op.x, state.Op.y, state.Op.balance, state.Op.nonce));
 
-	// Khung sườn file input.json
+	// ... [Đoạn khởi tạo inputJson giữ nguyên] ...
 	const inputJson = {
 		oldStateRoot: getRoot(),
 		txs_enabled: [],
@@ -214,8 +215,6 @@ async function main() {
 	let daHashesForTree = [];
 	let cumulativeFee = 0n;
 
-	console.log(`[Bắt đầu] Đang xử lý lô ${CONFIG.N_TXS} giao dịch (Alice chuyển cho Bob)...`);
-
 	// --- 2. Xử lý Lô Giao Dịch ---
 	for (let i = 0; i < CONFIG.N_TXS; i++) {
 		let isPadding = i >= MOCK_TX.NUM_REAL_TXS;
@@ -227,24 +226,23 @@ async function main() {
 		let r = state.Bob;
 		let old_nonce = s.nonce;
 
-		// Trích xuất Merkle Path CŨ của Sender
-		let senderPath = getPath(s.address);
+		// [FIX_INDEX]: Lấy Path bằng index
+		let senderPath = getPath(s.index);
 		inputJson.sender_balances.push(s.balance.toString());
 		inputJson.sender_nonces.push(old_nonce.toString());
 		inputJson.sender_pathElements.push(senderPath.pathElements);
 		inputJson.sender_pathIndices.push(senderPath.pathIndices);
 
-		// Backend trừ tiền và Cập nhật Gốc Tạm (Intermediate Root)
 		if (enabled === 1n) {
 			let sBal_new = s.balance - amount - fee;
 			let sNonce_new = s.nonce + 1n;
-			updateTree(s.address, getLeaf(s.x, s.y, sBal_new, sNonce_new));
+			updateTree(s.index, getLeaf(s.x, s.y, sBal_new, sNonce_new));
 			s.balance = sBal_new;
 			s.nonce = sNonce_new;
 		}
 
-		// Trích xuất Merkle Path CŨ của Receiver (Lấy từ Gốc Tạm)
-		let receiverPath = getPath(r.address);
+		// [FIX_INDEX]: Lấy Path bằng index
+		let receiverPath = getPath(r.index);
 		inputJson.receiver_pubKey_x.push(F.toString(r.x));
 		inputJson.receiver_pubKey_y.push(F.toString(r.y));
 		inputJson.receiver_balances.push(r.balance.toString());
@@ -252,16 +250,17 @@ async function main() {
 		inputJson.receiver_pathElements.push(receiverPath.pathElements);
 		inputJson.receiver_pathIndices.push(receiverPath.pathIndices);
 
-		// Backend cộng tiền và Cập nhật Gốc Mới (New Root)
 		if (enabled === 1n) {
 			let rBal_new = r.balance + amount;
-			updateTree(r.address, getLeaf(r.x, r.y, rBal_new, r.nonce));
+			updateTree(r.index, getLeaf(r.x, r.y, rBal_new, r.nonce));
 			r.balance = rBal_new;
 			cumulativeFee += fee;
 		}
 
-		// Ký giao dịch bằng EdDSA
-		const msgHash = poseidon([r.address, F.e(amount), F.e(fee), F.e(old_nonce)]);
+		// [FIX_INDEX]: Sửa lại Payload tạo chữ ký!
+		// Thay vì dùng r.address (đã bị xóa), ta băm PubKey của Bob để tạo định danh người nhận cho an toàn.
+		const receiverPubKeyHash = hashArr([r.x, r.y]);
+		const msgHash = poseidon([receiverPubKeyHash, F.e(amount), F.e(fee), F.e(old_nonce)]);
 		const sig = eddsa.signPoseidon(PRIVATE_KEYS.ALICE, msgHash);
 
 		inputJson.txs_enabled.push(enabled.toString());
@@ -279,10 +278,8 @@ async function main() {
 		daHashesForTree.push(msgHash);
 	}
 
-	console.log(`[Thành công] Đã xử lý xong các giao dịch. Tổng phí thu được: ${cumulativeFee} đơn vị.`);
-
 	// --- 3. Thu phí cho Operator ---
-	let opPath = getPath(state.Op.address);
+	let opPath = getPath(state.Op.index); // [FIX_INDEX]
 	inputJson.operator_pub_x = F.toString(state.Op.x);
 	inputJson.operator_pub_y = F.toString(state.Op.y);
 	inputJson.operator_balance_old = state.Op.balance.toString();
@@ -291,7 +288,7 @@ async function main() {
 	inputJson.operator_pathIndices = opPath.pathIndices;
 
 	let opBal_new = state.Op.balance + cumulativeFee;
-	updateTree(state.Op.address, getLeaf(state.Op.x, state.Op.y, opBal_new, state.Op.nonce));
+	updateTree(state.Op.index, getLeaf(state.Op.x, state.Op.y, opBal_new, state.Op.nonce)); // [FIX_INDEX]
 
 	inputJson.newStateRoot = getRoot();
 

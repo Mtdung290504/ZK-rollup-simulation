@@ -3,17 +3,34 @@ skinparam style strictuml
 
 |User|
 start
-:Deposit ETH;
+:Submit Deposit TX (to L1 Contract);
 
 |L1 Server|
 :Lock ETH in Vault;
-:Record Pending Deposit;
+:Assign deposit_id (auto-increment);
+:Store Deposit Event (pending_deposits[]);
 
 |L2 Server|
-:Fetch Pending Deposits;
-:Execute Treasury Transfer;
-:Update L2 State; (Deduct Balance, Increase Nonce);
-:Append to Transaction List;
+:Read last_processed_deposit_id;
+
+:Fetch pending_deposits from L1;
+:Filter deposits where deposit_id > last_processed_deposit_id;
+
+if (Any new deposits?) then (yes)
+
+  repeat
+    :Create L2 Deposit TX (Treasury → User);
+    :Validate Deposit TX (amount, format);
+    :Update L2 State (Deduct Treasury, Credit User);
+    :Append to Transaction List;
+
+    :Update last_processed_deposit_id;
+
+  repeat while (more deposits?)
+
+else (no)
+  :Do nothing;
+endif
 
 |L2 Server|
 :Group Transactions into Batch;

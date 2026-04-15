@@ -1,4 +1,4 @@
-@startuml "ZK-Rollup Sequence (Refined)"
+@startuml "ZK-Rollup Sequence"
 skinparam maxMessageSize 150
 
 actor User
@@ -10,15 +10,26 @@ participant "Archive Node" as Archive
 User -> L1: deposit(amount)
 activate L1
 L1 -> L1: lockETH()
-L1 -> L1: emit DepositEvent
+L1 -> L1: assign deposit_id++
+L1 -> L1: store pending_deposits[]
 L1 --> User: receipt
 deactivate L1
 
-L2 -> L1: fetchDeposits()
+L2 -> L1: fetch pending_deposits
 activate L2
 L1 --> L2: deposits[]
-L2 -> L2: executeTreasuryTransfer()
-L2 -> L2: appendTx()
+
+L2 -> L2: read last_processed_deposit_id
+L2 -> L2: filter (deposit_id > last_processed_deposit_id)
+
+loop for each new deposit
+  L2 -> L2: createDepositTx (Treasury -> User)
+  L2 -> L2: validateDepositTx
+  L2 -> L2: updateState()
+  L2 -> L2: appendTx()
+  L2 -> L2: update last_processed_deposit_id
+end
+
 deactivate L2
 
 == Transfer Flow (Soft Finality) ==
@@ -57,17 +68,27 @@ deactivate Archive
 
 User -> User: generateMerkleProof()
 
-User -> L1: withdraw(plaintext, merkleProof, batch_id)
+User -> L1: withdraw(tx_data, merkleProof, batch_id)
 activate L1
-L1 -> L1: calculateTxHash(plaintext)
+
+L1 -> L1: verifyMerkleProof()
 L1 -> L1: checkNullifier()
 
 alt Valid Proof && Receiver == Treasury
-    L1 -> L1: markNullifier()
-    L1 -> L1: unlockETH()
-    L1 --> User: transfer ETH
+
+    L1 -> L1: checkVaultBalance()
+
+    alt Vault has sufficient balance
+        L1 -> L1: markNullifier()
+        L1 -> L1: deductFromVault()
+        L1 -> User: transferETH()
+    else Insufficient vault balance
+        L1 --> User: error
+    end
+
 else Invalid
     L1 --> User: error
 end
+
 deactivate L1
 @enduml
