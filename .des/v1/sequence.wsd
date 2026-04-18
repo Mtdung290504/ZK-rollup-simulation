@@ -1,0 +1,97 @@
+@startuml "ZK-Rollup Sequence"
+skinparam maxMessageSize 150
+
+actor User
+participant "L1 Server" as L1
+participant "L2 Server" as L2
+participant "Archive Node" as Archive
+
+== Deposit Flow ==
+User -> L1: deposit(amount)
+activate L1
+L1 -> L1: lockETH()
+L1 -> L1: assign deposit_id++
+L1 -> L1: store pending_deposits[]
+L1 --> User: receipt
+deactivate L1
+
+L2 -> L1: fetch pending_deposits
+activate L2
+L1 --> L2: deposits[]
+
+L2 -> L2: read last_synced_deposit_id
+L2 -> L2: filter (deposit_id > last_synced_deposit_id)
+
+loop for each new deposit
+  L2 -> L2: createDepositTx (Treasury -> User)
+  L2 -> L2: validateDepositTx
+  L2 -> L2: updateState()
+  L2 -> L2: appendTx()
+  L2 -> L2: update last_synced_deposit_id
+end
+
+deactivate L2
+
+== Transfer Flow (Soft Finality) ==
+User -> L2: transfer(to, amount, signature)
+activate L2
+L2 -> L2: validateTx (sig + nonce + balance)
+L2 -> L2: updateState()
+L2 -> L2: appendTx()
+L2 --> User: success
+deactivate L2
+
+== Batching & Proving Flow ==
+L2 -> L2: createBatch()
+activate L2
+L2 -> L2: generateZKProof()
+
+par
+  L2 -> Archive: publishBlobs(batch_id, transactions)
+  L2 -> L1: submitBatch(proof, stateRoot, daRoot, num_deposits)
+end
+
+activate L1
+L1 -> L1: verifyProof()
+L1 -> L1: computeExpectedDepositHash()
+L1 -> L1: matchHash(expected_deposit_hash == depositInputHash)
+L1 -> L1: updateStateRoot()
+L1 --> L2: success
+L2 -> L2: update last_proven_deposit_id
+deactivate L1
+deactivate L2
+
+== Withdrawal Flow (Manual Claim) ==
+note over User, L2: User sends tx_type=2 (Withdraw) on L2 embedding l1_address\nand waits for batch inclusion.
+
+User -> Archive: getBlobs(batch_id)
+activate Archive
+Archive --> User: transactions[]
+deactivate Archive
+
+User -> User: rebuildLeaf() & generateMerkleProof()
+
+User -> L1: claimWithdrawal(tx_data, merkleProof)
+activate L1
+
+L1 -> L1: require(msg.sender == tx_data.l1_address)
+L1 -> L1: require(tx_data.tx_type == 2)
+L1 -> L1: checkNullifier(tx_hash)
+
+alt Valid checks & Nullifier unused
+    L1 -> L1: verifyMerkleProof(da_root)
+    
+    alt Valid Proof && tx_data.receiver == Treasury
+        L1 -> L1: markNullifier(tx_hash)
+        L1 -> L1: deductFromVault(amount)
+        L1 -> User: transferETH(amount)
+    else Invalid Proof or Receiver
+        L1 --> User: error
+    end
+
+else Nullifier already used
+    L1 --> User: error (double-spend rejected)
+end
+
+deactivate L1
+@enduml

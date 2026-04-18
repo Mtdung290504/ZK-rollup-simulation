@@ -1,0 +1,57 @@
+@startuml "Deposit Flow (L1 -> L2)"
+skinparam style strictuml
+
+|User|
+start
+:Submit Deposit TX (to L1 Contract);
+
+|L1 Server|
+:Lock ETH in Vault;
+:Assign deposit_id (auto-increment);
+:Store Deposit Event (pending_deposits[]);
+
+|L2 Server|
+:Read last_synced_deposit_id;
+
+:Fetch pending_deposits from L1;
+:Filter deposits where deposit_id > last_synced_deposit_id;
+
+if (Any new deposits?) then (yes)
+
+  repeat
+    :Create L2 Deposit TX (Treasury → User);
+    :Validate Deposit TX (amount, format);
+    :Update L2 State (Deduct Treasury, Credit User);
+    :Append to Transaction List;
+    :Include deposit in L1 Operations Hash (ZK Circuit);
+
+    :Update last_synced_deposit_id;
+
+  repeat while (more deposits?)
+
+else (no)
+  :Do nothing;
+endif
+
+|L2 Server|
+:Group Transactions into Batch;
+:Generate ZK Proof;
+
+fork
+  |L2 Server|
+  :Submit Proof and Roots;
+  |L1 Server|
+  :Rebuild Operations Hash & Match;
+  :Verify ZK Proof;
+  :Update State Root & DA Root;
+  |L2 Server|
+  :Update last_proven_deposit_id;
+fork again
+  |L2 Server|
+  :Publish DA Blobs;
+  |Archive Node|
+  :Store DA Blobs;
+end fork
+
+stop
+@enduml

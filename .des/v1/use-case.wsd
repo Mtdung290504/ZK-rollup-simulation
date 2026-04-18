@@ -1,0 +1,53 @@
+@startuml "ZK-Rollup Use-case"
+left to right direction
+skinparam packageStyle rectangle
+
+actor "User" as User
+actor "L2 Sequencer" as Sequencer
+actor "Archive Node" as Archive
+
+package "L1 Smart Contract" {
+  usecase "Deposit ETH" as UC_Deposit
+  usecase "Verify ZK Proof" as UC_VerifyZK
+  usecase "Verify Deposit Integrity (Hash Match)" as UC_VerifyDepositHash
+  usecase "Verify Merkle Proof" as UC_VerifyMerkle
+  usecase "Withdraw ETH" as UC_Withdraw
+}
+
+package "L2 System" {
+  usecase "Sync L1 Deposits" as UC_Sync
+  usecase "Transfer Funds" as UC_Transfer
+  usecase "Generate Batch" as UC_Batch
+  usecase "Generate ZK Proof" as UC_Prove
+  usecase "Submit Batch to L1" as UC_Submit
+}
+
+package "DA System" {
+  usecase "Store DA Blobs" as UC_StoreDA
+  usecase "Retrieve DA Blobs" as UC_RetrieveDA
+}
+
+' Associations
+User -- UC_Deposit
+User -- UC_Transfer
+User -- UC_Withdraw
+User -- UC_RetrieveDA
+
+Sequencer -- UC_Sync
+Sequencer -- UC_Transfer
+Sequencer -- UC_Batch
+Sequencer -- UC_StoreDA
+Sequencer -- UC_Submit
+
+Archive -- UC_StoreDA
+Archive -- UC_RetrieveDA
+
+' Includes
+UC_Batch ..> UC_Prove : <<include>>
+UC_Submit ..> UC_VerifyZK : <<include>>
+UC_VerifyZK ..> UC_VerifyDepositHash : <<include>>
+
+UC_Withdraw ..> UC_VerifyZK : <<include>>
+UC_Withdraw ..> UC_VerifyMerkle : <<include>>
+
+@enduml
