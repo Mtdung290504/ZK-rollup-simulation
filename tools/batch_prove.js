@@ -21,13 +21,14 @@ import generateProof from '../ZK/prove/index.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const L2_DB_PATH = path.join(ROOT, 'L2', 'db', 'l2_db.json');
+const L1_DB_PATH = path.join(ROOT, 'L1', 'db', 'l1_db.json');
 const INPUT_JSON_PATH = path.join(ROOT, 'ZK', 'circuits', 'prove_rollup', 'input.json');
 const OUTPUT_DIR = path.join(ROOT, 'ZK', 'circuits', 'prove_rollup', 'output', 'plonk');
 const CACHE_PATH = path.join(ROOT, 'ZK', 'circuits', 'zero_hashes_cache.json');
 
 const CONFIG = {
 	N_TXS: 4,
-	DEPTH: 6,
+	DEPTH: 4,
 };
 
 async function main() {
@@ -35,11 +36,14 @@ async function main() {
 	console.log(`[Batch Prover] Bắt đầu quá trình Snapshot & Chứng minh Lô`);
 	console.log(`======================================================\n`);
 
-	if (!fs.existsSync(L2_DB_PATH)) {
-		console.error(`[Error] L2 DB không tồn tại. Hãy chắc chắn L2 Server đang chạy / đã init.`);
+	const useCache = process.argv.includes('--cache');
+
+	if (!fs.existsSync(L2_DB_PATH) || !fs.existsSync(L1_DB_PATH)) {
+		console.error(`[Error] L2 DB hoặc L1 DB không tồn tại. Hãy chắc chắn Server đang chạy / đã init.`);
 		process.exit(1);
 	}
 	const l2_db = JSON.parse(fs.readFileSync(L2_DB_PATH, 'utf8'));
+	const l1_db = JSON.parse(fs.readFileSync(L1_DB_PATH, 'utf8'));
 
 	let startIndex = l2_db.system.last_proven_tx_index + 1;
 	let availableTxs = l2_db.transactions.slice(startIndex, startIndex + CONFIG.N_TXS);
@@ -146,7 +150,9 @@ async function main() {
 
 	const inputJson = {
 		oldStateRoot: oldStateRoot,
+		old_operations_hash: l1_db.bridge_contract.last_operations_hash || '0',
 		txs_enabled: [],
+		txs_type: [],
 		txs_from_x: [],
 		txs_from_y: [],
 		txs_to_x: [],
@@ -154,6 +160,8 @@ async function main() {
 		txs_amount: [],
 		txs_fee: [],
 		txs_nonce: [],
+		txs_l1_address: [],
+		txs_deposit_id: [],
 		txs_sig_R8x: [],
 		txs_sig_R8y: [],
 		txs_sig_S: [],
@@ -171,6 +179,7 @@ async function main() {
 
 	let daHashesForTree = [];
 	let cumulativeFee = 0n;
+	let currentOpsHash = BigInt(l1_db.bridge_contract.last_operations_hash || '0');
 
 	for (let i = 0; i < CONFIG.N_TXS; i++) {
 		let isPadding = i >= availableTxs.length;
@@ -180,19 +189,25 @@ async function main() {
 		// Đảm bảo Alice key check EdDSA hợp lệ ngay cả khi enabled=0
 		let tx = isPadding
 			? {
-					from_x: simAccounts.Alice.pub_x,
-					from_y: simAccounts.Alice.pub_y,
+					type: 0,
+					from_x: simAccounts.Treasury.pub_x,
+					from_y: simAccounts.Treasury.pub_y,
 					to_x: '0',
 					to_y: '0',
 					amount: '0',
 					fee: '0',
 					nonce: '0',
+					l1_address: '0',
+					deposit_id: -1,
 				}
 			: availableTxs[i];
 
+		let type = BigInt(tx.type === 'deposit' ? 1 : tx.type || 0);
 		let amount = BigInt(tx.amount);
 		let fee = BigInt(tx.fee);
 		let old_nonce = BigInt(tx.nonce);
+		let l1_address = BigInt(tx.l1_address || 0);
+		let deposit_id = BigInt(tx.deposit_id ?? -1);
 
 		let s = Object.values(simAccounts).find((a) => a.pub_x === tx.from_x && a.pub_y === tx.from_y);
 		// Với dummy tx, r có thể bị undefined vì hệ thống không có acc với pubKey "0".
@@ -236,24 +251,45 @@ async function main() {
 			R8y = tx.sig_R8y;
 			S = tx.sig_S;
 		} else if (enabled === 1n && tx.sig_S === '0') {
-			// Lệnh Deposit => Treasury Signed
+			// Lệnh Deposit => Treasury Signed (9 fields)
 			let treasuryPrivKey = wallets.treasury.l2.privateKey;
-			let msgHash = poseidon([poseidon([BigInt(r.pub_x), BigInt(r.pub_y)]), amount, fee, old_nonce]);
+			let msgHash = poseidon([
+				type,
+				BigInt(s.pub_x),
+				BigInt(s.pub_y),
+				BigInt(r.pub_x),
+				BigInt(r.pub_y),
+				amount,
+				fee,
+				old_nonce,
+				l1_address,
+			]);
 			let sig = eddsa.signPoseidon(Buffer.from(treasuryPrivKey, 'hex'), msgHash);
 			R8x = F.toString(sig.R8[0]);
 			R8y = F.toString(sig.R8[1]);
 			S = sig.S.toString();
 		} else if (enabled === 0n) {
-			// Re-sign padding tx cho Alice
-			let privKeys = { Alice: wallets.alice.l2.privateKey };
-			let msgHash = poseidon([poseidon([BigInt('0'), BigInt('0')]), amount, fee, old_nonce]);
-			let sig = eddsa.signPoseidon(Buffer.from(privKeys['Alice'], 'hex'), msgHash);
+			// Re-sign padding tx cho Treasury (9 fields)
+			let privKey = wallets.treasury.l2.privateKey;
+			let msgHash = poseidon([
+				type,
+				BigInt(s.pub_x),
+				BigInt(s.pub_y),
+				BigInt('0'),
+				BigInt('0'),
+				amount,
+				fee,
+				old_nonce,
+				BigInt('0'),
+			]);
+			let sig = eddsa.signPoseidon(Buffer.from(privKey, 'hex'), msgHash);
 			R8x = F.toString(sig.R8[0]);
 			R8y = F.toString(sig.R8[1]);
 			S = sig.S.toString();
 		}
 
 		inputJson.txs_enabled.push(enabled.toString());
+		inputJson.txs_type.push(type.toString());
 		inputJson.txs_from_x.push(s.pub_x);
 		inputJson.txs_from_y.push(s.pub_y);
 		inputJson.txs_to_x.push(r.pub_x);
@@ -261,14 +297,30 @@ async function main() {
 		inputJson.txs_amount.push(amount.toString());
 		inputJson.txs_fee.push(fee.toString());
 		inputJson.txs_nonce.push(old_nonce.toString());
+		inputJson.txs_l1_address.push(l1_address.toString());
+		inputJson.txs_deposit_id.push(deposit_id.toString());
 		inputJson.txs_sig_R8x.push(R8x);
 		inputJson.txs_sig_R8y.push(R8y);
 		inputJson.txs_sig_S.push(S);
 
-		// DA Hash của padding tx phải đồng nhất với kết quả nội tại do Circom băm trên msg_hash
-		const rxHash = poseidon([BigInt(r.pub_x), BigInt(r.pub_y)]);
-		const daHash = poseidon([rxHash, amount, fee, old_nonce]);
+		// DA Hash (9 fields)
+		const daHash = poseidon([
+			type,
+			BigInt(s.pub_x),
+			BigInt(s.pub_y),
+			BigInt(r.pub_x),
+			BigInt(r.pub_y),
+			amount,
+			fee,
+			old_nonce,
+			l1_address,
+		]);
 		daHashesForTree.push(daHash);
+
+		// Operations Hash
+		if (enabled === 1n && type === 1n) {
+			currentOpsHash = poseidon([currentOpsHash, deposit_id, BigInt(r.pub_x), BigInt(r.pub_y), amount]);
+		}
 	}
 
 	let opPath = getPath(simAccounts.Operator.index);
@@ -292,7 +344,7 @@ async function main() {
 	for (let i = n_nodes - 1; i >= 0; i--) node_hashes[i] = poseidon([node_hashes[2 * i + 1], node_hashes[2 * i + 2]]);
 	const daTreeRoot = F.toString(node_hashes[0]);
 
-	const pHash = poseidon([BigInt(oldStateRoot), BigInt(newStateRoot), BigInt(daTreeRoot)]);
+	const pHash = poseidon([BigInt(oldStateRoot), BigInt(newStateRoot), BigInt(daTreeRoot), currentOpsHash]);
 	inputJson.publicInputHash = F.toString(pHash);
 
 	fs.writeFileSync(INPUT_JSON_PATH, JSON.stringify(inputJson, null, 2));
@@ -301,18 +353,24 @@ async function main() {
 	console.log(`[Batch Prover] New Root: ${newStateRoot}`);
 	console.log(`[Batch Prover] DA Root:  ${daTreeRoot}`);
 
-	console.log(`\n[Batch Prover] Đang chạy sinh bằng chứng Plonk (có thể mất 15-30s)...`);
-	const circuitDir = path.join(ROOT, 'ZK', 'circuits', 'prove_rollup');
-	const success = generateProof(circuitDir, 'plonk');
+	if (!useCache) {
+		console.log(`\n[Batch Prover] Đang chạy sinh bằng chứng Plonk (có thể mất 15-30s)...`);
+		const circuitDir = path.join(ROOT, 'ZK', 'circuits', 'prove_rollup');
+		const success = generateProof(circuitDir, 'plonk');
 
-	if (!success) {
-		console.error(`[Batch Prover] Sinh Proof THẤT BẠI. Dừng tại đây.`);
-		process.exit(1);
+		if (!success) {
+			console.error(`[Batch Prover] Sinh Proof THẤT BẠI. Dừng tại đây.`);
+			process.exit(1);
+		}
+	} else {
+		console.log(`\n[Batch Prover] [CACHE MODE] Bỏ qua bước sinh Proof. Sử dụng proof.json có sẵn để gửi lên Sequencer...`);
 	}
 
-	console.log(`\n[Batch Prover] Proof thành công! Gửi lên Sequencer để Relay...`);
+	console.log(`\n[Batch Prover] Tiến hành Gửi lên Sequencer để Relay...`);
 	const proofRaw = JSON.parse(fs.readFileSync(path.join(OUTPUT_DIR, 'proof.json'), 'utf8'));
 	const publicSigsRaw = JSON.parse(fs.readFileSync(path.join(OUTPUT_DIR, 'public.json'), 'utf8'));
+
+	const numDeposits = availableTxs.filter((tx) => tx.type === 1 || tx.type === 'deposit').length;
 
 	const payload = {
 		proof: proofRaw,
@@ -320,6 +378,7 @@ async function main() {
 		oldStateRoot,
 		newStateRoot,
 		daRoot: daTreeRoot,
+		num_deposits: numDeposits,
 		transactions: availableTxs,
 	};
 
@@ -333,9 +392,9 @@ async function main() {
 		const data = await response.json();
 
 		if (response.ok) {
-			console.log(`[Batch Prover] 🟢 Giao tiếp thành công! Batch #${data.batch_id} đã được lưu trên chuỗi.`);
+			console.log(`[Batch Prover] Giao tiếp thành công! Batch #${data.batch_id} đã được lưu trên chuỗi.`);
 		} else {
-			console.error(`[Batch Prover] 🔴 Lỗi từ Server L2/L1:`, data);
+			console.error(`[Batch Prover] Lỗi từ Server L2/L1:`, data);
 		}
 	} catch (e) {
 		console.error(`[Batch Prover] Lỗi mạng khi gọi API submit (Servers đã bật chưa?):`, e.message);

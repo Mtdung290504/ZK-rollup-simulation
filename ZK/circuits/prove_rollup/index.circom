@@ -17,6 +17,7 @@ template BatchRollup(N_TXS, DEPTH) {
     signal input operator_pathIndices[DEPTH];
 
     signal input txs_enabled[N_TXS];
+    signal input txs_type[N_TXS];
     signal input txs_from_x[N_TXS];
     signal input txs_from_y[N_TXS];
     signal input txs_to_x[N_TXS];
@@ -24,6 +25,9 @@ template BatchRollup(N_TXS, DEPTH) {
     signal input txs_amount[N_TXS];
     signal input txs_fee[N_TXS];
     signal input txs_nonce[N_TXS];
+    signal input txs_l1_address[N_TXS];
+    signal input txs_deposit_id[N_TXS];
+    signal input old_operations_hash;
     signal input txs_sig_R8x[N_TXS];
     signal input txs_sig_R8y[N_TXS];
     signal input txs_sig_S[N_TXS];
@@ -47,9 +51,13 @@ template BatchRollup(N_TXS, DEPTH) {
     signal fees[N_TXS + 1];
     fees[0] <== 0;
 
+    signal ops_hashes[N_TXS + 1];
+    ops_hashes[0] <== old_operations_hash;
+
     for (var i = 0; i < N_TXS; i++) {
         processors[i] = ProcessTx(DEPTH);
         processors[i].enabled <== txs_enabled[i];
+        processors[i].tx_type <== txs_type[i];
         processors[i].from_x <== txs_from_x[i];
         processors[i].from_y <== txs_from_y[i];
         processors[i].to_x <== txs_to_x[i];
@@ -57,6 +65,9 @@ template BatchRollup(N_TXS, DEPTH) {
         processors[i].amount <== txs_amount[i];
         processors[i].fee <== txs_fee[i];
         processors[i].nonce <== txs_nonce[i];
+        processors[i].l1_address <== txs_l1_address[i];
+        processors[i].deposit_id <== txs_deposit_id[i];
+        processors[i].old_operations_hash <== ops_hashes[i];
         processors[i].sig_R8x <== txs_sig_R8x[i];
         processors[i].sig_R8y <== txs_sig_R8y[i];
         processors[i].sig_S <== txs_sig_S[i];
@@ -75,6 +86,7 @@ template BatchRollup(N_TXS, DEPTH) {
         }
         processors[i].currentRoot <== roots[i];
         roots[i + 1] <== processors[i].newRoot;
+        ops_hashes[i + 1] <== processors[i].new_operations_hash;
         fees[i + 1] <== fees[i] + (txs_fee[i] * txs_enabled[i]);
     }
 
@@ -114,14 +126,15 @@ template BatchRollup(N_TXS, DEPTH) {
         da_hasher.tx_hashes[i] <== processors[i].tx_hash;
     }
 
-    component root_hash = Poseidon(3);
+    component root_hash = Poseidon(4);
     root_hash.inputs[0] <== oldStateRoot;
     root_hash.inputs[1] <== newStateRoot;
     root_hash.inputs[2] <== da_hasher.tree_root;
+    root_hash.inputs[3] <== ops_hashes[N_TXS];
     root_hash.out === publicInputHash;
 }
 
 // oldStateRoot với newStateRoot được truyền thẳng vào param gọi smart contract
 // Cùng 1 calldata nhưng vấn đề là ở phí gas cho phép verify, khi số lượng public input nhiều
 // => Tốn nhiều phép ECC hơn => tốn gas hơn
-component main {public [publicInputHash]} = BatchRollup(4, 6);
+component main {public [publicInputHash]} = BatchRollup(4, 4);

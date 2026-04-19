@@ -10,15 +10,17 @@ const cachePath = path.join(process.cwd(), 'ZK', 'circuits', 'zero_hashes_cache.
 const router = express.Router();
 
 router.post('/transfer', async (req, res) => {
-	const { from_x, from_y, to_x, to_y, amount, fee, nonce, sig_R8x, sig_R8y, sig_S } = req.body;
+	const { tx_type, from_x, from_y, to_x, to_y, amount, fee, nonce, l1_address, sig_R8x, sig_R8y, sig_S } = req.body;
 
-	if (!from_x || !to_x || !amount || !fee || !nonce || !sig_S) {
+	if (!from_x || !to_x || !amount || typeof fee === 'undefined' || typeof nonce === 'undefined' || !sig_S) {
 		return res.status(400).json({ error: 'Missing transfer parameters' });
 	}
 
+	const type = Number(tx_type || 0);
 	const amt = BigInt(amount);
 	const f = BigInt(fee);
 	const nnc = BigInt(nonce);
+	const l1Addr = BigInt(l1_address || "0");
 
 	try {
 		const db = readDB();
@@ -50,9 +52,18 @@ router.post('/transfer', async (req, res) => {
 		}
 
 		// 4. Validate EdDSA Signature
-		// payload: Hash(Hash(to_x, to_y), amount, fee, nonce)
-		const receiverPubKeyHash = poseidonHashArr(poseidon, [BigInt(to_x), BigInt(to_y)]);
-		const msgHash = poseidonHashArr(poseidon, [receiverPubKeyHash, amt, f, nnc]);
+		// payload: Hash(tx_type, from_x, from_y, to_x, to_y, amount, fee, nonce, l1_address)
+		const msgHash = poseidonHashArr(poseidon, [
+			BigInt(type),
+			BigInt(from_x),
+			BigInt(from_y),
+			BigInt(to_x),
+			BigInt(to_y),
+			amt,
+			f,
+			nnc,
+			l1Addr
+		]);
 
 		const isValidSig = verifyEdDSASignature(
 			eddsa,
@@ -98,12 +109,14 @@ router.post('/transfer', async (req, res) => {
 
 		// 6. Append to Mempool / Transactions
 		const tx = {
-			type: 'transfer',
+			type: type,
 			from_x, from_y,
 			to_x, to_y,
 			amount: amount.toString(),
 			fee: fee.toString(),
 			nonce: nonce.toString(),
+			l1_address: l1_address || "0",
+			deposit_id: -1,
 			sig_R8x, sig_R8y, sig_S,
 			timestamp: Date.now()
 		};

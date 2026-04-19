@@ -3,6 +3,9 @@ import { readDB } from '../lib/db.js';
 import { getPoseidon, poseidonHashArr } from '../../tools/poseidon.js';
 import { DenseMerkleTree } from '../../tools/merkle_tree.js';
 import path from 'path';
+import fs from 'fs';
+
+const WALLETS_PATH = path.join(process.cwd(), 'config', 'wallets.json');
 
 const router = express.Router();
 
@@ -34,52 +37,58 @@ router.post('/auto-withdraw', async (req, res) => {
 		// Generate Merkle Proof of DA Tree
 		const poseidon = await getPoseidon();
 		const F = poseidon.F;
-		// In batch_prove, N_TXS is dynamically length of txs, but padding makes it N_TXS.
-		// Archive stores padded
+		
 		const N_TXS = 4;
-		const DEPTH = Math.log2(N_TXS);
-		const daTree = new DenseMerkleTree(poseidon, DEPTH, path.join(process.cwd(), 'ZK', 'circuits', 'zero_hashes_cache.json'));
-
-		const padRxHash = poseidonHashArr(poseidon, [0n, 0n]);
-		const padDaLeaf = poseidonHashArr(poseidon, [padRxHash, 0n, 0n, 0n]);
+		const n_nodes = N_TXS - 1;
+		let node_hashes = new Array(2 * N_TXS - 1).fill(0n);
 
 		for (let i = 0; i < N_TXS; i++) {
-			if (i < txs.length) {
-				const rxHash = poseidonHashArr(poseidon, [BigInt(txs[i].to_x), BigInt(txs[i].to_y)]);
-				const daLeaf = poseidonHashArr(poseidon, [rxHash, BigInt(txs[i].amount), BigInt(txs[i].fee), BigInt(txs[i].nonce)]);
-				daTree.updateLeaf(i, daLeaf);
-			} else {
-				daTree.updateLeaf(i, padDaLeaf);
+			let tx = txs[i];
+			if (!tx) {
+				const wallets = JSON.parse(fs.readFileSync(WALLETS_PATH, 'utf8'));
+				tx = { 
+					type: 0, 
+					from_x: wallets.treasury.l2.publicKey.x, 
+					from_y: wallets.treasury.l2.publicKey.y, 
+					to_x: '0', to_y: '0', amount: '0', fee: '0', nonce: '0', l1_address: '0' 
+				};
 			}
+			const daLeaf = poseidonHashArr(poseidon, [
+				BigInt(tx.type || 0), BigInt(tx.from_x), BigInt(tx.from_y), 
+				BigInt(tx.to_x), BigInt(tx.to_y), BigInt(tx.amount || 0), 
+				BigInt(tx.fee || 0), BigInt(tx.nonce || 0), BigInt(tx.l1_address || 0)
+			]);
+			node_hashes[n_nodes + i] = daLeaf;
+		}
+
+		for (let i = n_nodes - 1; i >= 0; i--) {
+			node_hashes[i] = poseidon([node_hashes[2 * i + 1], node_hashes[2 * i + 2]]);
 		}
 
 		// Get Path for the queried tx
-		function getPath(index) {
-			let addrBits = BigInt(index).toString(2).padStart(DEPTH, '0').split('').reverse().map(Number);
-			let currentIndex = BigInt(index);
+		function getPath(targetIndex) {
 			let pathElements = [];
-			for (let i = 0; i < DEPTH; i++) {
-				let isRight = addrBits[i];
-				let siblingIndex = isRight ? currentIndex - 1n : currentIndex + 1n;
-				let siblingHash = daTree.nodes[`${i},${siblingIndex}`];
-				if (siblingHash === undefined) {
-					pathElements.push(F.toString(daTree.zeros[i]));
-				} else {
-					pathElements.push(typeof siblingHash === 'string' ? siblingHash : F.toString(siblingHash));
-				}
-				currentIndex = currentIndex / 2n;
+			let pathIndices = [];
+			let currentIndex = n_nodes + targetIndex;
+
+			while (currentIndex > 0) {
+				let isRightChild = currentIndex % 2 === 0;
+				let sibling = isRightChild ? currentIndex - 1 : currentIndex + 1;
+
+				pathElements.push(F.toString(node_hashes[sibling]));
+				pathIndices.push(isRightChild ? 1 : 0);
+
+				currentIndex = Math.floor((currentIndex - 1) / 2);
 			}
-			return { pathElements, pathIndices: addrBits };
+			return { pathElements, pathIndices };
 		}
 
 		const merkleProof = getPath(tx_index);
 
-		const rPubKeyHash = poseidonHashArr(poseidon, [BigInt(withdrawTx.to_x), BigInt(withdrawTx.to_y)]);
 		const daHash = poseidonHashArr(poseidon, [
-			rPubKeyHash,
-			BigInt(withdrawTx.amount),
-			BigInt(withdrawTx.fee),
-			BigInt(withdrawTx.nonce),
+			BigInt(withdrawTx.type), BigInt(withdrawTx.from_x), BigInt(withdrawTx.from_y), 
+			BigInt(withdrawTx.to_x), BigInt(withdrawTx.to_y), BigInt(withdrawTx.amount), 
+			BigInt(withdrawTx.fee), BigInt(withdrawTx.nonce), BigInt(withdrawTx.l1_address || 0)
 		]);
 		const nullifierHash = poseidon.F.toString(daHash);
 

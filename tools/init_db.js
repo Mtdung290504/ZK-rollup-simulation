@@ -36,7 +36,7 @@ async function main() {
 	const poseidon = await getPoseidon();
 	const F = poseidon.F;
 	const cachePath = path.join(ROOT, 'ZK', 'circuits', 'zero_hashes_cache.json');
-	const tree = new DenseMerkleTree(poseidon, 6, cachePath); // Depth = 6
+	const tree = new DenseMerkleTree(poseidon, 4, cachePath); // Depth = 4
 
 	const l2Accounts = {
 		Treasury: {
@@ -88,7 +88,8 @@ async function main() {
 		transactions: [],
 		system: {
 			last_proven_tx_index: -1,
-			last_processed_deposit_id: -1,
+			last_synced_deposit_id: -1,
+			last_proven_deposit_id: -1,
 			merkle_tree: {
 				nodes: tree.exportNodes(),
 			},
@@ -113,7 +114,11 @@ async function main() {
 	};
 	fs.writeFileSync(L1_DB_PATH, JSON.stringify(l1_db, null, 2));
 
-	console.log('[init_db] L1 & L2 database initialized.');
+	// 5. Ghi Archive DB
+	// const archiveDbPath = path.join(ARCHIVE_DB_DIR, 'archive.json');
+	// fs.writeFileSync(archiveDbPath, JSON.stringify({ batches: {} }, null, 2));
+
+	console.log('[init_db] L1, L2 & Archive database initialized.');
 	console.log(`  L1 vault balances: Alice/Bob=100 ETH`);
 	console.log(`  L2 Treasury balance: ${MAX_UINT128.toString()}`);
 	console.log(`  Initial State Root: ${initialStateRoot}`);

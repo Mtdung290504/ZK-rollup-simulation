@@ -1,16 +1,18 @@
 import express from 'express';
 import { readDB, writeDB } from '../lib/db.js';
 import { verifyPlonkProof } from '../lib/plonk_verify.js';
-import { computePublicInputHash } from '../lib/merkle_verify.js';
+import { computePublicInputHash, computeOperationsHash } from '../lib/merkle_verify.js';
 
 const router = express.Router();
 
 router.post('/batch/submit', async (req, res) => {
-	const { proof, publicSignals, oldStateRoot, newStateRoot, daRoot } = req.body;
+	const { proof, publicSignals, oldStateRoot, newStateRoot, daRoot, num_deposits } = req.body;
 
 	if (!proof || !publicSignals || !oldStateRoot || !newStateRoot || !daRoot) {
 		return res.status(400).json({ error: 'Missing batch parameters' });
 	}
+
+	const incomingDepositsCount = Number(num_deposits || 0);
 
 	try {
 		const db = readDB();
@@ -21,8 +23,32 @@ router.post('/batch/submit', async (req, res) => {
 			return res.status(400).json({ error: `State Root Mismatch! Expected ${currentStateRoot}, Got ${oldStateRoot}` });
 		}
 
-		// 2. Validate Public Input Hash (Calldata Optimization trick)
-		const expectedPublicInputHash = await computePublicInputHash(oldStateRoot, newStateRoot, daRoot);
+		// 2. Resolve L1 Operations Hash & Desync ID
+		let currentOpsHash = db.bridge_contract.last_operations_hash || "0";
+		let lastProvenDepositId = db.bridge_contract.last_proven_deposit_id ?? -1;
+
+		for (let i = 0; i < incomingDepositsCount; i++) {
+			const targetDepId = lastProvenDepositId + 1 + i;
+			const depositInfo = db.bridge_contract.pending_deposits.find(d => d.deposit_id === targetDepId);
+			if (!depositInfo) {
+				return res.status(400).json({ error: `Cannot rebuild Operations Hash: Deposit ID ${targetDepId} missing from queue.` });
+			}
+			currentOpsHash = await computeOperationsHash(
+				currentOpsHash, 
+				depositInfo.deposit_id, 
+				depositInfo.l2_pub_x, 
+				depositInfo.l2_pub_y, 
+				depositInfo.amount
+			);
+		}
+
+		// 3. Validate Public Input Hash
+		const expectedPublicInputHash = await computePublicInputHash(oldStateRoot, newStateRoot, daRoot, currentOpsHash);
+
+		console.log("[DEBUG L1] oldStateRoot:", oldStateRoot);
+		console.log("[DEBUG L1] newStateRoot:", newStateRoot);
+		console.log("[DEBUG L1] daRoot:", daRoot);
+		console.log("[DEBUG L1] currentOpsHash:", currentOpsHash);
 
 		// Circom public signals is an array of strings
 		if (publicSignals[0] !== expectedPublicInputHash) {
@@ -30,16 +56,19 @@ router.post('/batch/submit', async (req, res) => {
 			return res.status(400).json({ error: 'Public Input Hash Mismatch. Invalid DA or State transition.' });
 		}
 
-		// 3. SNARKJS ZK Proof Verify
+		// 4. SNARKJS ZK Proof Verify
 		const isValidProof = await verifyPlonkProof(proof, publicSignals);
 
 		if (!isValidProof) {
 			return res.status(400).json({ error: 'Zero-Knowledge Proof Verification Failed!' });
 		}
 
-		// 4. Update state
+		// 5. Update state
 		const batch_id = Object.keys(db.bridge_contract.batch_history).length + 1;
 		db.bridge_contract.current_state_root = newStateRoot;
+		db.bridge_contract.last_operations_hash = currentOpsHash;
+		db.bridge_contract.last_proven_deposit_id = lastProvenDepositId + incomingDepositsCount;
+		
 		db.bridge_contract.batch_history[batch_id.toString()] = {
 			state_root: newStateRoot,
 			da_root: daRoot,

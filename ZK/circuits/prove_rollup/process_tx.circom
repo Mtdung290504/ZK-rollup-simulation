@@ -12,6 +12,7 @@ include "../../circomlib/circuits/mux1.circom";
 template ProcessTx(DEPTH) {
     signal input enabled; // Cờ Padding
 
+    signal input tx_type;
     signal input from_x;
     signal input from_y;
     signal input to_x;
@@ -19,6 +20,10 @@ template ProcessTx(DEPTH) {
     signal input amount;
     signal input fee;
     signal input nonce;
+    signal input l1_address;
+    signal input deposit_id;
+    signal input old_operations_hash;
+    
     signal input sig_R8x;
     signal input sig_R8y;
     signal input sig_S;
@@ -38,11 +43,13 @@ template ProcessTx(DEPTH) {
     signal input currentRoot;
 
     signal output newRoot;
-    signal output tx_hash; // Xuất hash ra cho DA Tree
+    signal output tx_hash; // Xuất hash 9 trường ra cho DA Tree
+    signal output new_operations_hash; // Operations Hash cộng dồn cho L1 đối soát
 
     // 1. Verify Chữ Ký
     component txVerifier = VerifyTxSignature();
     txVerifier.enabled <== enabled;
+    txVerifier.tx_type <== tx_type;
     txVerifier.from_x <== from_x;
     txVerifier.from_y <== from_y;
     txVerifier.to_x <== to_x;
@@ -50,11 +57,49 @@ template ProcessTx(DEPTH) {
     txVerifier.amount <== amount;
     txVerifier.fee <== fee; 
     txVerifier.nonce <== nonce;
+    txVerifier.l1_address <== l1_address;
     txVerifier.sig_R8x <== sig_R8x; 
     txVerifier.sig_R8y <== sig_R8y; 
     txVerifier.sig_S <== sig_S;
 
     tx_hash <== txVerifier.msg_hash;
+
+    // 1B. L1 Operations Hash (Chốt chặn Kho bạc)
+    // Cưỡng chế: Mọi giao dịch khởi nguồn từ Treasury đều phải dùng Operations Hash
+    var TREASURY_X = 20257655333597217740899094985403572455718304473578486559526162687121833363396;
+    var TREASURY_Y = 9368438139727990468422623438035078385108414551455247519960932519731843913490;
+
+    component isTreasuryX = IsEqual();
+    isTreasuryX.in[0] <== from_x;
+    isTreasuryX.in[1] <== TREASURY_X;
+
+    component isTreasuryY = IsEqual();
+    isTreasuryY.in[0] <== from_y;
+    isTreasuryY.in[1] <== TREASURY_Y;
+
+    component isFromTreasury = AND();
+    isFromTreasury.a <== isTreasuryX.out;
+    isFromTreasury.b <== isTreasuryY.out;
+
+    component isDeposit = AND();
+    isDeposit.a <== isFromTreasury.out;
+    isDeposit.b <== enabled;
+
+    // Tính băm cuộn: Poseidon(oldHash, deposit_id, to_x, to_y, amount)
+    component ops_hasher = Poseidon(5);
+    ops_hasher.inputs[0] <== old_operations_hash;
+    ops_hasher.inputs[1] <== deposit_id;
+    ops_hasher.inputs[2] <== to_x;
+    ops_hasher.inputs[3] <== to_y;
+    ops_hasher.inputs[4] <== amount;
+
+    // Chốt: Nếu là deposit thì lấy ops_hasher, nếu không thì bê nguyên old_operations_hash truyền đi
+    component ops_mux = Mux1();
+    ops_mux.c[0] <== old_operations_hash;
+    ops_mux.c[1] <== ops_hasher.out;
+    ops_mux.s <== isDeposit.out;
+
+    new_operations_hash <== ops_mux.out;
 
     // 2. Ràng buộc Logic (Chỉ check khi enabled == 1)
 

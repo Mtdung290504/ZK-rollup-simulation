@@ -22,7 +22,7 @@ router.get('/sync-deposits', async (req, res) => {
 		const all_pending = data.pending_deposits || [];
 
 		// 2. Filter new deposits
-		const last_id = db.system.last_processed_deposit_id;
+		const last_id = db.system.last_synced_deposit_id ?? -1;
 		const new_deposits = all_pending.filter(d => d.deposit_id > last_id);
 
 		if (new_deposits.length === 0) {
@@ -78,7 +78,7 @@ router.get('/sync-deposits', async (req, res) => {
 
 			// Append TX (Using dummy sig for Treasury deposit)
 			const tx = {
-				type: 'deposit',
+				type: 1,
 				from_x: treasury.pub_x, 
 				from_y: treasury.pub_y,
 				to_x: receiver.pub_x, 
@@ -86,13 +86,14 @@ router.get('/sync-deposits', async (req, res) => {
 				amount: amount.toString(),
 				fee: "0",
 				nonce: (BigInt(treasury.nonce) - 1n).toString(),
+				l1_address: l1_address,
+				deposit_id: deposit_id,
 				sig_R8x: "0", sig_R8y: "0", sig_S: "0",
-				deposit_id,
 				timestamp: Date.now()
 			};
 			db.transactions.push(tx);
 
-			db.system.last_processed_deposit_id = deposit_id;
+			db.system.last_synced_deposit_id = deposit_id;
 			syncCount++;
 		}
 

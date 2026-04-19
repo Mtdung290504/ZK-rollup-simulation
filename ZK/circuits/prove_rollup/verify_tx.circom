@@ -6,6 +6,7 @@ include "../../circomlib/circuits/eddsaposeidon.circom";
 template VerifyTxSignature() {
     signal input enabled; // 1 = Real, 0 = Padding
     
+    signal input tx_type; // 0 = Transfer, 1 = Deposit, 2 = Withdraw
     signal input from_x;
     signal input from_y;
     signal input to_x;
@@ -13,6 +14,7 @@ template VerifyTxSignature() {
     signal input amount;
     signal input fee;
     signal input nonce;
+    signal input l1_address;
     
     signal input sig_R8x;
     signal input sig_R8y;
@@ -20,21 +22,21 @@ template VerifyTxSignature() {
 
     signal output msg_hash;
 
-    // 1. Tính địa chỉ người nhận từ PubKey (Khớp với logic JS getAddress)
-    component to_addr = Poseidon(2);
-    to_addr.inputs[0] <== to_x;
-    to_addr.inputs[1] <== to_y;
-
-    // 2. Tính Hash thông điệp (Khớp với JS: poseidon([r.address, amount, fee, nonce]))
-    component msg_hasher = Poseidon(4);
-    msg_hasher.inputs[0] <== to_addr.out;
-    msg_hasher.inputs[1] <== amount;
-    msg_hasher.inputs[2] <== fee;
-    msg_hasher.inputs[3] <== nonce;
+    // Tính Hash thông điệp chuẩn 9-field: Poseidon(tx_type, from_x, from_y, to_x, to_y, amount, fee, nonce, l1_address)
+    component msg_hasher = Poseidon(9);
+    msg_hasher.inputs[0] <== tx_type;
+    msg_hasher.inputs[1] <== from_x;
+    msg_hasher.inputs[2] <== from_y;
+    msg_hasher.inputs[3] <== to_x;
+    msg_hasher.inputs[4] <== to_y;
+    msg_hasher.inputs[5] <== amount;
+    msg_hasher.inputs[6] <== fee;
+    msg_hasher.inputs[7] <== nonce;
+    msg_hasher.inputs[8] <== l1_address;
     
     msg_hash <== msg_hasher.out;
 
-    // 3. Verify chữ ký EdDSA (Tắt verify nếu enabled = 0)
+    // Verify chữ ký EdDSA (Tắt verify nếu enabled = 0)
     component eddsa = EdDSAPoseidonVerifier();
     eddsa.enabled <== enabled;
     eddsa.Ax <== from_x;
