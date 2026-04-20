@@ -363,7 +363,9 @@ async function main() {
 			process.exit(1);
 		}
 	} else {
-		console.log(`\n[Batch Prover] [CACHE MODE] Bỏ qua bước sinh Proof. Sử dụng proof.json có sẵn để gửi lên Sequencer...`);
+		console.log(
+			`\n[Batch Prover] [CACHE MODE] Bỏ qua bước sinh Proof. Sử dụng proof.json có sẵn để gửi lên Sequencer...`,
+		);
 	}
 
 	console.log(`\n[Batch Prover] Tiến hành Gửi lên Sequencer để Relay...`);
@@ -382,6 +384,8 @@ async function main() {
 		transactions: availableTxs,
 	};
 
+	console.log('L2 ALL LEAVES:', daHashesForTree);
+	console.log('AVAILABLE TXS:', availableTxs);
 	try {
 		const response = await fetch('http://localhost:5000/l2/batch/submit-proof', {
 			method: 'POST',

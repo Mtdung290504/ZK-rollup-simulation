@@ -11,7 +11,7 @@ const router = express.Router();
 
 router.post('/withdraw', async (req, res) => {
 	const { l1_address, amount, batch_id, tx_data, merkle_proof } = req.body;
-
+	console.log(merkle_proof);
 	if (!l1_address || !amount || !batch_id || !tx_data || !merkle_proof) {
 		return res.status(400).json({ error: 'Missing parameters' });
 	}
@@ -28,7 +28,7 @@ router.post('/withdraw', async (req, res) => {
 	if (l1_address.toLowerCase() !== tx_data.l1_address.toLowerCase()) {
 		return res.status(401).json({ error: 'Identity mismatch! msg.sender must match tx_data.l1_address' });
 	}
-	if (Number(tx_data.tx_type ?? tx_data.type) !== 2) {
+	if (Number(tx_data.type) !== 2) {
 		console.log(tx_data);
 		return res.status(400).json({ error: 'Invalid tx_type. Only withdrawals (type 2) are allowed.' });
 	}
@@ -74,7 +74,7 @@ router.post('/withdraw', async (req, res) => {
 
 	writeDB(db);
 
-	console.log(`[L1/Withdraw] SUCCESS — User ${l1_address} claimed ${amount} ETH.`);
+	console.log(`[L1/Withdraw] SUCCESS — User ${l1_address} claimed ${amount} ETH. New balance:`, db.vault[l1_address]);
 	console.log(`[L1/Withdraw] Nullifier marked: ${nullifierHash.slice(0, 16)}...`);
 
 	return res.status(200).json({ success: true, message: 'Withdrawal successful', amount_claimed: amount });
