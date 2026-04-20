@@ -67,10 +67,11 @@ router.post('/withdraw', async (req, res) => {
 	db.bridge_contract.total_locked_eth -= amount;
 
 	// Credit back to user vault (in reality this is transferring real ETH)
+	console.log('Old balance:', db.vault[l1_address], typeof db.vault[l1_address]);
 	if (db.vault[l1_address] === undefined) {
 		db.vault[l1_address] = 0;
 	}
-	db.vault[l1_address] += amount;
+	db.vault[l1_address] = Number(db.vault[l1_address]) + Number(amount);
 
 	writeDB(db);
 
