@@ -74,7 +74,7 @@ export class DenseMerkleTree {
 	 * Cập nhật một chiếc lá và tính toán lại đường dẫn lên tới Root
 	 *
 	 * @param {number | bigint} index - Vị trí lá (0 đến 2^depth - 1)
-	 * @param {bigint} leafValue - Giá trị hash của dữ liệu lá mới
+	 * @param {import('circomlibjs').BigNumberish} leafValue - Giá trị hash của dữ liệu lá mới
 	 * @returns {string} Root mới sau khi cập nhật
 	 */
 	updateLeaf(index, leafValue) {
