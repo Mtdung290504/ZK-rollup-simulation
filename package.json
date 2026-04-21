@@ -16,6 +16,7 @@
     "ethers": "^6.16.0",
     "express": "^5.2.1",
     "ffjavascript": "^0.3.1",
-    "snarkjs": "^0.7.6"
+    "snarkjs": "^0.7.6",
+    "stored-data-object": "^1.0.13"
   }
 }

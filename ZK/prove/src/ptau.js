@@ -13,10 +13,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  * @returns Đường dẫn file ptau đã download hoặc null
  */
 function downloadHermezPtau(power, ptauDir) {
-	const ptauFile = path.join(
-		ptauDir,
-		`powersOfTau28_hez_final_${power.toString().padStart(2, '0')}.ptau`,
-	);
+	const ptauFile = path.join(ptauDir, `powersOfTau28_hez_final_${power.toString().padStart(2, '0')}.ptau`);
 
 	if (fs.existsSync(ptauFile)) {
 		console.log(`> [Info] Hermez ptau file already exists (2^${power})`);
