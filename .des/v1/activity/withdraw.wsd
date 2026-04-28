@@ -1,9 +1,9 @@
-@startuml "Withdraw Flow (L2 -> L1 - Manual Claim)"
+@startuml "Withdraw Flow (L2 -> L1)"
 skinparam style strictuml
 
 |User|
 start
-:Sign Withdraw TX (tx_type=2, embed l1_address);
+:Sign Withdraw TX [User → Treasury](tx_type=2, embed l1_address);
 
 |L2 Server|
 :Validate Transaction (Target == Treasury);
@@ -14,18 +14,17 @@ start
 :Group Transactions into Batch;
 :Generate ZK Proof;
 
-fork
-  |L2 Server|
-  :Submit Proof & Roots;
-  |L1 Server|
-  :Verify ZK Proof;
-  :Store da_root in Batch History;
-fork again
-  |L2 Server|
-  :Publish DA Blobs;
-  |Archive Node|
-  :Store DA Blobs;
-end fork
+|L2 Server|
+:Publish DA Blobs;
+|Archive Node|
+:Store DA Blobs;
+:Return DA_Commitment;
+|L2 Server|
+:Submit Proof & DA_Commitment;
+|L1 Server|
+:checkDAAvailability(DA_Commitment);
+:Verify ZK Proof;
+:Store da_root in Batch History;
 
 |User|
 :Fetch DA Blobs (from Archive Node);

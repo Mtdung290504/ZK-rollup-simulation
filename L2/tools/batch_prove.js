@@ -13,13 +13,13 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { getPoseidon, poseidonHashArr } from './poseidon.js';
-import { getEddsa } from '../L2/lib/eddsa.js';
-import { DenseMerkleTree } from './merkle_tree.js';
-import generateProof from '../ZK/prove/index.js';
+import { getPoseidon, poseidonHashArr } from '../../tools/poseidon.js';
+import { getEddsa } from '../lib/eddsa.js';
+import { DenseMerkleTree } from '../../tools/merkle_tree.js';
+import generateProof from '../../ZK/prove/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.resolve(__dirname, '..');
+const ROOT = path.resolve(__dirname, '../..');
 const L2_DB_PATH = path.join(ROOT, 'L2', 'db', 'l2_db.json');
 const L1_DB_PATH = path.join(ROOT, 'L1', 'db', 'l1_db.json');
 const INPUT_JSON_PATH = path.join(ROOT, 'ZK', 'circuits', 'prove_rollup', 'input.json');
@@ -66,30 +66,18 @@ async function main() {
 
 	const MAX_UINT128 = 340282366920938463463374607431768211455n;
 
-	let simAccounts = {
-		Treasury: {
-			pub_x: wallets.treasury.l2.publicKey.x,
-			pub_y: wallets.treasury.l2.publicKey.y,
-			balance: MAX_UINT128,
-			nonce: 0n,
-			index: 0,
-		},
-		Alice: {
-			pub_x: wallets.alice.l2.publicKey.x,
-			pub_y: wallets.alice.l2.publicKey.y,
-			balance: 0n,
-			nonce: 0n,
-			index: 1,
-		},
-		Bob: { pub_x: wallets.bob.l2.publicKey.x, pub_y: wallets.bob.l2.publicKey.y, balance: 0n, nonce: 0n, index: 2 },
-		Operator: {
-			pub_x: wallets.operator.l2.publicKey.x,
-			pub_y: wallets.operator.l2.publicKey.y,
-			balance: 0n,
-			nonce: 0n,
-			index: 3,
-		},
-	};
+	let simAccounts = {};
+	if (l2_db.proven_accounts) {
+		const temp = JSON.parse(JSON.stringify(l2_db.proven_accounts));
+		for (const key in temp) {
+			simAccounts[key] = temp[key];
+			simAccounts[key].balance = BigInt(temp[key].balance);
+			simAccounts[key].nonce = BigInt(temp[key].nonce);
+		}
+	} else {
+		console.error('Lỗi: Không tìm thấy proven_accounts. Hãy chạy lại node tools/init_db.js');
+		process.exit(1);
+	}
 
 	const hashLeaf = (acc) => poseidonHashArr(poseidon, [BigInt(acc.pub_x), BigInt(acc.pub_y), acc.balance, acc.nonce]);
 
@@ -113,20 +101,8 @@ async function main() {
 		}
 	}
 
-	// Apply tất cả TX từ 0 đến startIndex
-	for (let i = 0; i < startIndex; i++) {
-		let tx = l2_db.transactions[i];
-		let s = Object.values(simAccounts).find((a) => a.pub_x === tx.from_x && a.pub_y === tx.from_y);
-		let r = Object.values(simAccounts).find((a) => a.pub_x === tx.to_x && a.pub_y === tx.to_y);
-		s.balance -= BigInt(tx.amount) + BigInt(tx.fee);
-		s.nonce += 1n;
-		r.balance += BigInt(tx.amount);
-		simAccounts.Operator.balance += BigInt(tx.fee);
-
-		tree.updateLeaf(s.index, hashLeaf(s));
-		tree.updateLeaf(r.index, hashLeaf(r));
-		tree.updateLeaf(simAccounts.Operator.index, hashLeaf(simAccounts.Operator));
-	}
+	// KHÔNG CẦN CHẠY O(N) VÒNG LẶP TRANSACTION NỮA!
+	// simAccounts (proven_accounts) chính là State hiện tại ngay trước khi Proof batch mới!
 
 	const oldStateRoot = tree.getRoot();
 
@@ -374,6 +350,12 @@ async function main() {
 
 	const numDeposits = availableTxs.filter((tx) => tx.type === 1 || tx.type === 'deposit').length;
 
+	// Serializing bigints before passing through payload JSON
+	for (let k in simAccounts) {
+		simAccounts[k].balance = simAccounts[k].balance.toString();
+		simAccounts[k].nonce = simAccounts[k].nonce.toString();
+	}
+
 	const payload = {
 		proof: proofRaw,
 		publicSignals: publicSigsRaw,
@@ -382,6 +364,7 @@ async function main() {
 		daRoot: daTreeRoot,
 		num_deposits: numDeposits,
 		transactions: availableTxs,
+		new_proven_accounts: simAccounts,
 	};
 
 	console.log('L2 ALL LEAVES:', daHashesForTree);

@@ -46,12 +46,15 @@ L2 -> L2: createBatch()
 activate L2
 L2 -> L2: generateZKProof()
 
-par
-  L2 -> Archive: publishBlobs(batch_id, transactions)
-  L2 -> L1: submitBatch(proof, stateRoot, daRoot, num_deposits)
-end
+L2 -> Archive: publishBlobs(transactions)
+activate Archive
+Archive --> L2: DA_Commitment (kzg_versioned_hash)
+deactivate Archive
 
+L2 -> L1: submitBatch(proof, stateRoot, DA_Commitment, num_deposits)
 activate L1
+
+L1 -> L1: checkDAAvailability(DA_Commitment)
 L1 -> L1: verifyProof()
 L1 -> L1: computeExpectedDepositHash()
 L1 -> L1: matchHash(expected_deposit_hash == depositInputHash)

@@ -46,7 +46,7 @@ template ProcessTx(DEPTH) {
     signal output tx_hash; // Xuất hash 9 trường ra cho DA Tree
     signal output new_operations_hash; // Operations Hash cộng dồn cho L1 đối soát
 
-    // 1. Verify Chữ Ký
+    // Verify Chữ Ký
     component txVerifier = VerifyTxSignature();
     txVerifier.enabled <== enabled;
     txVerifier.tx_type <== tx_type;
@@ -64,26 +64,18 @@ template ProcessTx(DEPTH) {
 
     tx_hash <== txVerifier.msg_hash;
 
-    // 1B. L1 Operations Hash (Chốt chặn Kho bạc)
-    // Cưỡng chế: Mọi giao dịch khởi nguồn từ Treasury đều phải dùng Operations Hash
+    // *Ngăn kho bạc in tiền khống
+    // Cưỡng chế: Mọi giao dịch từ Treasury đều phải dùng Operations Hash
+    // Hardcode địa chỉ ví kho bạc
     var TREASURY_X = 20257655333597217740899094985403572455718304473578486559526162687121833363396;
     var TREASURY_Y = 9368438139727990468422623438035078385108414551455247519960932519731843913490;
 
-    component isTreasuryX = IsEqual();
-    isTreasuryX.in[0] <== from_x;
-    isTreasuryX.in[1] <== TREASURY_X;
-
-    component isTreasuryY = IsEqual();
-    isTreasuryY.in[0] <== from_y;
-    isTreasuryY.in[1] <== TREASURY_Y;
-
-    component isFromTreasury = AND();
-    isFromTreasury.a <== isTreasuryX.out;
-    isFromTreasury.b <== isTreasuryY.out;
-
-    component isDeposit = AND();
-    isDeposit.a <== isFromTreasury.out;
-    isDeposit.b <== enabled;
+    // Giao dịch từ kho bạc
+    component isTreasuryX = IsEqual(); isTreasuryX.in[0] <== from_x; isTreasuryX.in[1] <== TREASURY_X;
+    component isTreasuryY = IsEqual(); isTreasuryY.in[0] <== from_y; isTreasuryY.in[1] <== TREASURY_Y;
+    component isFromTreasury = AND(); isFromTreasury.a <== isTreasuryX.out; isFromTreasury.b <== isTreasuryY.out;
+    // Và là loại nạp
+    component isDeposit = AND(); isDeposit.a <== isFromTreasury.out; isDeposit.b <== enabled;
 
     // Tính băm cuộn: Poseidon(oldHash, deposit_id, to_x, to_y, amount)
     component ops_hasher = Poseidon(5);

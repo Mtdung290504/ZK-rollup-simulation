@@ -37,21 +37,21 @@ endif
 :Group Transactions into Batch;
 :Generate ZK Proof;
 
-fork
-  |L2 Server|
-  :Submit Proof and Roots;
-  |L1 Server|
-  :Rebuild Operations Hash & Match;
-  :Verify ZK Proof;
-  :Update State Root & DA Root;
-  |L2 Server|
-  :Update last_proven_deposit_id;
-fork again
-  |L2 Server|
-  :Publish DA Blobs;
-  |Archive Node|
-  :Store DA Blobs;
-end fork
+|L2 Server|
+:Publish DA Blobs;
+|Archive Node|
+:Store DA Blobs;
+:Return DA_Commitment;
+|L2 Server|
+:Submit Proof and DA_Commitment;
+|L1 Server|
+:checkDAAvailability(DA_Commitment);
+:Rebuild Operations Hash & Match;
+:Verify ZK Proof;
+:Update State Root & DA Root;
+|L2 Server|
+:Update last_proven_deposit_id;
+:Snapshot 'proven_accounts';
 
 stop
 @enduml

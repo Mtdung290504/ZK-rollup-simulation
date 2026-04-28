@@ -14,18 +14,19 @@ start
 :Group Transactions into Batch;
 :Generate ZK Proof;
 
-fork
-  |L2 Server|
-  :Publish DA Blobs;
-  |Archive Node|
-  :Store DA Blobs;
-fork again
-  |L2 Server|
-  :Submit Proof and Roots;
-  |L1 Server|
-  :Verify ZK Proof;
-  :Update State Root & DA Root;
-end fork
+|L2 Server|
+:Publish DA Blobs;
+|Archive Node|
+:Store DA Blobs;
+:Return DA_Commitment;
+|L2 Server|
+:Submit Proof and DA_Commitment;
+|L1 Server|
+:checkDAAvailability(DA_Commitment);
+:Verify ZK Proof;
+:Update State Root & DA Root;
+|L2 Server|
+:Snapshot 'proven_accounts';
 
 stop
 @enduml

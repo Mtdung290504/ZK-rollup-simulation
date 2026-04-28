@@ -85,6 +85,7 @@ async function main() {
 	// 3. Ghi L2 DB
 	const l2_db = {
 		accounts: l2Accounts,
+		proven_accounts: JSON.parse(JSON.stringify(l2Accounts)),
 		transactions: [],
 		system: {
 			last_proven_tx_index: -1,
