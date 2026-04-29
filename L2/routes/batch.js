@@ -1,5 +1,5 @@
 import express from 'express';
-import { readDB, writeDB } from '../lib/db.js';
+import { l2Store } from '../db/index.js';
 import path from 'path';
 
 const router = express.Router();
@@ -24,7 +24,7 @@ router.post('/batch/submit-proof', async (req, res) => {
 	}
 
 	try {
-		const db = readDB();
+		const db = l2Store.data;
 
 		// 1. Fetch current L1 State to determine the next determinisitic batch ID
 		const stateRes = await fetch('http://localhost:3000/contract/state');
@@ -62,7 +62,7 @@ router.post('/batch/submit-proof', async (req, res) => {
 		// Ghi nhận mốc Account an toàn!
 		if (new_proven_accounts) db.proven_accounts = new_proven_accounts;
 
-		writeDB(db);
+		await l2Store.write();
 
 		console.log(`[L2/Batch] Successfully published Batch to Archive and L1 Contract.`);
 

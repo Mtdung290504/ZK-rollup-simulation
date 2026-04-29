@@ -1,12 +1,12 @@
 import express from 'express';
-import { readDB } from '../lib/db.js';
+import { l2Store } from '../db/index.js';
 
 const router = express.Router();
 
 router.get('/state', (req, res) => {
 	try {
-		const db = readDB();
-		const root = db.system.merkle_tree.nodes['6,0'] || '0';
+		const db = l2Store.data;
+		const root = db.system.merkle_tree.nodes['4,0'] || '0';
 		
 		res.status(200).json({
 			state_root: root,

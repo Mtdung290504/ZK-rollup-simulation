@@ -18,10 +18,11 @@ import { getEddsa } from '../lib/eddsa.js';
 import { DenseMerkleTree } from '../../tools/merkle_tree.js';
 import generateProof from '../../ZK/prove/index.js';
 
+import { l2Store } from '../db/index.js';
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
-const L2_DB_PATH = path.join(ROOT, 'L2', 'db', 'l2_db.json');
-const L1_DB_PATH = path.join(ROOT, 'L1', 'db', 'l1_db.json');
+const L1_CONTRACT_PATH = path.join(ROOT, 'L1', 'db', 'storage', 'contract_storage.json');
 const INPUT_JSON_PATH = path.join(ROOT, 'ZK', 'circuits', 'prove_rollup', 'input.json');
 const OUTPUT_DIR = path.join(ROOT, 'ZK', 'circuits', 'prove_rollup', 'output', 'plonk');
 const CACHE_PATH = path.join(ROOT, 'ZK', 'circuits', 'zero_hashes_cache.json');
@@ -38,12 +39,14 @@ async function main() {
 
 	const useCache = process.argv.includes('--cache');
 
-	if (!fs.existsSync(L2_DB_PATH) || !fs.existsSync(L1_DB_PATH)) {
-		console.error(`[Error] L2 DB hoặc L1 DB không tồn tại. Hãy chắc chắn Server đang chạy / đã init.`);
+	if (!fs.existsSync(L1_CONTRACT_PATH)) {
+		console.error(
+			`[Error] L1 contract_storage không tồn tại. Hãy chắc chắn Server đang chạy / đã init.`,
+		);
 		process.exit(1);
 	}
-	const l2_db = JSON.parse(fs.readFileSync(L2_DB_PATH, 'utf8'));
-	const l1_db = JSON.parse(fs.readFileSync(L1_DB_PATH, 'utf8'));
+	const l2_db = l2Store.data;
+	const l1_contract = JSON.parse(fs.readFileSync(L1_CONTRACT_PATH, 'utf8'));
 
 	let startIndex = l2_db.system.last_proven_tx_index + 1;
 	let availableTxs = l2_db.transactions.slice(startIndex, startIndex + CONFIG.N_TXS);
@@ -79,30 +82,29 @@ async function main() {
 		process.exit(1);
 	}
 
-	const hashLeaf = (acc) => poseidonHashArr(poseidon, [BigInt(acc.pub_x), BigInt(acc.pub_y), acc.balance, acc.nonce]);
+	// hashLeaf nhận pub_x từ key (không có trong value nữa)
+	const hashLeaf = (pub_x, acc) =>
+		poseidonHashArr(poseidon, [BigInt(pub_x), BigInt(acc.pub_y), acc.balance, acc.nonce]);
 
-	for (const key in simAccounts) {
-		tree.updateLeaf(simAccounts[key].index, hashLeaf(simAccounts[key]));
+	for (const [pub_x, acc] of Object.entries(simAccounts)) {
+		tree.updateLeaf(acc.index, hashLeaf(pub_x, acc));
 	}
 
-	// L2 DB accounts could be dynamically created, let's sync ALL L2 DB accounts into simAccounts!
-	const db_accounts_list = Object.values(l2_db.accounts);
-	for (const acc of db_accounts_list) {
-		let exists = Object.values(simAccounts).find((a) => a.pub_x === acc.pub_x && a.pub_y === acc.pub_y);
-		if (!exists) {
-			simAccounts[`UID_${acc.index}`] = {
-				pub_x: acc.pub_x,
+	// Sync new accounts from L2 DB that aren't in proven_accounts yet
+	for (const [pub_x, acc] of Object.entries(l2_db.accounts)) {
+		if (!simAccounts[pub_x]) {
+			simAccounts[pub_x] = {
 				pub_y: acc.pub_y,
 				balance: 0n,
 				nonce: 0n,
 				index: acc.index,
 			};
-			tree.updateLeaf(acc.index, hashLeaf({ pub_x: acc.pub_x, pub_y: acc.pub_y, balance: 0n, nonce: 0n }));
+			tree.updateLeaf(acc.index, hashLeaf(pub_x, simAccounts[pub_x]));
 		}
 	}
 
-	// KHÔNG CẦN CHẠY O(N) VÒNG LẶP TRANSACTION NỮA!
-	// simAccounts (proven_accounts) chính là State hiện tại ngay trước khi Proof batch mới!
+	// KHÔNG CẦN CHẠY O(N) VÒNG LẶP TRANSACTION NỮA
+	// simAccounts (proven_accounts) chính là State hiện tại ngay trước khi Proof batch mới
 
 	const oldStateRoot = tree.getRoot();
 
@@ -126,7 +128,7 @@ async function main() {
 
 	const inputJson = {
 		oldStateRoot: oldStateRoot,
-		old_operations_hash: l1_db.bridge_contract.last_operations_hash || '0',
+		old_operations_hash: l1_contract.last_operations_hash || '0',
 		txs_enabled: [],
 		txs_type: [],
 		txs_from_x: [],
@@ -155,7 +157,7 @@ async function main() {
 
 	let daHashesForTree = [];
 	let cumulativeFee = 0n;
-	let currentOpsHash = BigInt(l1_db.bridge_contract.last_operations_hash || '0');
+	let currentOpsHash = BigInt(l1_contract.last_operations_hash || '0');
 
 	for (let i = 0; i < CONFIG.N_TXS; i++) {
 		let isPadding = i >= availableTxs.length;
@@ -166,8 +168,8 @@ async function main() {
 		let tx = isPadding
 			? {
 					type: 0,
-					from_x: simAccounts.Treasury.pub_x,
-					from_y: simAccounts.Treasury.pub_y,
+					from_x: wallets.treasury.l2.publicKey.x,
+					from_y: wallets.treasury.l2.publicKey.y,
 					to_x: '0',
 					to_y: '0',
 					amount: '0',
@@ -185,12 +187,8 @@ async function main() {
 		let l1_address = BigInt(tx.l1_address || 0);
 		let deposit_id = BigInt(tx.deposit_id ?? -1);
 
-		let s = Object.values(simAccounts).find((a) => a.pub_x === tx.from_x && a.pub_y === tx.from_y);
-		// Với dummy tx, r có thể bị undefined vì hệ thống không có acc với pubKey "0".
-		// Tuy nhiên ta chỉ dùng r.pub_x, r.pub_y, v.v..
-		let r = isPadding
-			? { pub_x: '0', pub_y: '0', balance: 0n, nonce: 0n, index: 0 }
-			: Object.values(simAccounts).find((a) => a.pub_x === tx.to_x && a.pub_y === tx.to_y);
+		let s = simAccounts[tx.from_x];
+		let r = isPadding ? { pub_y: '0', balance: 0n, nonce: 0n, index: 0 } : simAccounts[tx.to_x];
 
 		let senderPath = getPath(s.index);
 		inputJson.sender_balances.push(s.balance.toString());
@@ -201,11 +199,11 @@ async function main() {
 		if (enabled === 1n) {
 			s.balance = s.balance - amount - fee;
 			s.nonce = s.nonce + 1n;
-			tree.updateLeaf(s.index, hashLeaf(s));
+			tree.updateLeaf(s.index, hashLeaf(tx.from_x, s));
 		}
 
 		let receiverPath = getPath(r.index);
-		inputJson.receiver_pubKey_x.push(r.pub_x);
+		inputJson.receiver_pubKey_x.push(isPadding ? '0' : tx.to_x);
 		inputJson.receiver_pubKey_y.push(r.pub_y);
 		inputJson.receiver_balances.push(r.balance.toString());
 		inputJson.receiver_nonces.push(r.nonce.toString());
@@ -214,7 +212,7 @@ async function main() {
 
 		if (enabled === 1n) {
 			r.balance = r.balance + amount;
-			tree.updateLeaf(r.index, hashLeaf(r));
+			tree.updateLeaf(r.index, hashLeaf(tx.to_x, r));
 			cumulativeFee += fee;
 		}
 
@@ -231,10 +229,10 @@ async function main() {
 			let treasuryPrivKey = wallets.treasury.l2.privateKey;
 			let msgHash = poseidon([
 				type,
-				BigInt(s.pub_x),
-				BigInt(s.pub_y),
-				BigInt(r.pub_x),
-				BigInt(r.pub_y),
+				BigInt(tx.from_x),
+				BigInt(tx.from_y),
+				BigInt(tx.to_x),
+				BigInt(tx.to_y),
 				amount,
 				fee,
 				old_nonce,
@@ -249,8 +247,8 @@ async function main() {
 			let privKey = wallets.treasury.l2.privateKey;
 			let msgHash = poseidon([
 				type,
-				BigInt(s.pub_x),
-				BigInt(s.pub_y),
+				BigInt(tx.from_x),
+				BigInt(tx.from_y),
 				BigInt('0'),
 				BigInt('0'),
 				amount,
@@ -266,10 +264,10 @@ async function main() {
 
 		inputJson.txs_enabled.push(enabled.toString());
 		inputJson.txs_type.push(type.toString());
-		inputJson.txs_from_x.push(s.pub_x);
-		inputJson.txs_from_y.push(s.pub_y);
-		inputJson.txs_to_x.push(r.pub_x);
-		inputJson.txs_to_y.push(r.pub_y);
+		inputJson.txs_from_x.push(tx.from_x);
+		inputJson.txs_from_y.push(tx.from_y);
+		inputJson.txs_to_x.push(isPadding ? '0' : tx.to_x);
+		inputJson.txs_to_y.push(isPadding ? '0' : tx.to_y);
 		inputJson.txs_amount.push(amount.toString());
 		inputJson.txs_fee.push(fee.toString());
 		inputJson.txs_nonce.push(old_nonce.toString());
@@ -282,10 +280,10 @@ async function main() {
 		// DA Hash (9 fields)
 		const daHash = poseidon([
 			type,
-			BigInt(s.pub_x),
-			BigInt(s.pub_y),
-			BigInt(r.pub_x),
-			BigInt(r.pub_y),
+			BigInt(tx.from_x),
+			BigInt(tx.from_y),
+			BigInt(isPadding ? '0' : tx.to_x),
+			BigInt(isPadding ? '0' : tx.to_y),
 			amount,
 			fee,
 			old_nonce,
@@ -295,20 +293,22 @@ async function main() {
 
 		// Operations Hash
 		if (enabled === 1n && type === 1n) {
-			currentOpsHash = poseidon([currentOpsHash, deposit_id, BigInt(r.pub_x), BigInt(r.pub_y), amount]);
+			currentOpsHash = poseidon([currentOpsHash, deposit_id, BigInt(tx.to_x), BigInt(tx.to_y), amount]);
 		}
 	}
 
-	let opPath = getPath(simAccounts.Operator.index);
-	inputJson.operator_pub_x = simAccounts.Operator.pub_x;
-	inputJson.operator_pub_y = simAccounts.Operator.pub_y;
-	inputJson.operator_balance_old = simAccounts.Operator.balance.toString();
-	inputJson.operator_nonce = simAccounts.Operator.nonce.toString();
+	const operatorPubX = wallets.operator.l2.publicKey.x;
+	let op = simAccounts[operatorPubX];
+	let opPath = getPath(op.index);
+	inputJson.operator_pub_x = operatorPubX;
+	inputJson.operator_pub_y = op.pub_y;
+	inputJson.operator_balance_old = op.balance.toString();
+	inputJson.operator_nonce = op.nonce.toString();
 	inputJson.operator_pathElements = opPath.pathElements;
 	inputJson.operator_pathIndices = opPath.pathIndices;
 
-	simAccounts.Operator.balance += cumulativeFee;
-	tree.updateLeaf(simAccounts.Operator.index, hashLeaf(simAccounts.Operator));
+	op.balance += cumulativeFee;
+	tree.updateLeaf(op.index, hashLeaf(operatorPubX, op));
 
 	const newStateRoot = tree.getRoot();
 	inputJson.newStateRoot = newStateRoot;

@@ -1,5 +1,5 @@
 import express from 'express';
-import { readDB } from '../lib/db.js';
+import { l2Store } from '../db/index.js';
 import { getPoseidon, poseidonHashArr } from '../../tools/poseidon.js';
 import { getEddsa, verifyEdDSASignature } from '../lib/eddsa.js';
 
@@ -23,9 +23,9 @@ router.post('/sign-and-transfer', async (req, res) => {
 		const from_x = poseidon.F.toString(pub[0]);
 		const from_y = poseidon.F.toString(pub[1]);
 
-		// 2. Lookup sender nonce in DB
-		const db = readDB();
-		let sender = Object.values(db.accounts).find((a) => a.pub_x === from_x && a.pub_y === from_y);
+		// 2. Lookup sender nonce in DB — accounts keyed by pub_x (O(1))
+		const db = l2Store.data;
+		const sender = db.accounts[from_x];
 
 		if (!sender) return res.status(400).json({ error: 'Sender not found in L2 State' });
 

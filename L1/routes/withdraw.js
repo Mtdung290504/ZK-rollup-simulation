@@ -1,5 +1,5 @@
 import express from 'express';
-import { readDB, writeDB } from '../lib/db.js';
+import { chainEnv, contract } from '../db/index.js';
 import { verifyMerkleProof, computeLeafHash } from '../lib/merkle_verify.js';
 import fs from 'fs';
 import path from 'path';
@@ -16,10 +16,8 @@ router.post('/withdraw', async (req, res) => {
 		return res.status(400).json({ error: 'Missing parameters' });
 	}
 
-	const db = readDB();
-
 	// 1. Fetch DA Root of the batch (Batch Existence)
-	const batch = db.bridge_contract.batch_history[batch_id.toString()];
+	const batch = contract.data.batch_history[batch_id.toString()];
 	if (!batch) {
 		return res.status(400).json({ error: 'Invalid batch_id. Batch does not exist' });
 	}
@@ -46,7 +44,7 @@ router.post('/withdraw', async (req, res) => {
 
 	// 4. Calculate Nullifier natively (Anti Double-spend & Tamper Proof)
 	const nullifierHash = await computeLeafHash(tx_data);
-	if (db.bridge_contract.claimed_nullifiers[nullifierHash]) {
+	if (contract.data.claimed_nullifiers[nullifierHash]) {
 		return res.status(400).json({ error: 'Double-spend attempt: Nullifier already used!' });
 	}
 
@@ -57,25 +55,24 @@ router.post('/withdraw', async (req, res) => {
 	}
 
 	// 6. Verify L1 liquidity
-	// In reality the contract checks its own balance, here we use total_locked_eth as a proxy
-	if (db.bridge_contract.total_locked_eth < amount) {
+	if (contract.data.total_locked_eth < amount) {
 		return res.status(500).json({ error: 'CRITICAL: Insufficient system liquidity.' });
 	}
 
 	// Execute Withdraw
-	db.bridge_contract.claimed_nullifiers[nullifierHash] = Date.now();
-	db.bridge_contract.total_locked_eth -= amount;
+	contract.data.claimed_nullifiers[nullifierHash] = Date.now();
+	contract.data.total_locked_eth -= amount;
 
 	// Credit back to user vault (in reality this is transferring real ETH)
-	console.log('Old balance:', db.vault[l1_address], typeof db.vault[l1_address]);
-	if (db.vault[l1_address] === undefined) {
-		db.vault[l1_address] = 0;
+	console.log('Old balance:', chainEnv.data.vault[l1_address], typeof chainEnv.data.vault[l1_address]);
+	if (chainEnv.data.vault[l1_address] === undefined) {
+		chainEnv.data.vault[l1_address] = 0;
 	}
-	db.vault[l1_address] = Number(db.vault[l1_address]) + Number(amount);
+	chainEnv.data.vault[l1_address] = Number(chainEnv.data.vault[l1_address]) + Number(amount);
 
-	writeDB(db);
+	await Promise.all([chainEnv.write(), contract.write()]);
 
-	console.log(`[L1/Withdraw] SUCCESS — User ${l1_address} claimed ${amount} ETH. New balance:`, db.vault[l1_address]);
+	console.log(`[L1/Withdraw] SUCCESS — User ${l1_address} claimed ${amount} ETH. New balance:`, chainEnv.data.vault[l1_address]);
 	console.log(`[L1/Withdraw] Nullifier marked: ${nullifierHash.slice(0, 16)}...`);
 
 	return res.status(200).json({ success: true, message: 'Withdrawal successful', amount_claimed: amount });

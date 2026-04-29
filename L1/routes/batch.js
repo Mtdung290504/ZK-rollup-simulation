@@ -1,5 +1,5 @@
 import express from 'express';
-import { readDB, writeDB } from '../lib/db.js';
+import { contract, eventLog } from '../db/index.js';
 import { verifyPlonkProof } from '../lib/plonk_verify.js';
 import { computePublicInputHash, computeOperationsHash } from '../lib/merkle_verify.js';
 
@@ -15,8 +15,7 @@ router.post('/batch/submit', async (req, res) => {
 	const incomingDepositsCount = Number(num_deposits || 0);
 
 	try {
-		const db = readDB();
-		const currentStateRoot = db.bridge_contract.current_state_root;
+		const currentStateRoot = contract.data.current_state_root;
 
 		// 1. Check oldStateRoot matches the L1 current state
 		if (oldStateRoot !== currentStateRoot) {
@@ -26,12 +25,12 @@ router.post('/batch/submit', async (req, res) => {
 		}
 
 		// 2. Resolve L1 Operations Hash & Desync ID
-		let currentOpsHash = db.bridge_contract.last_operations_hash || '0';
-		let lastProvenDepositId = db.bridge_contract.last_proven_deposit_id ?? -1;
+		let currentOpsHash = contract.data.last_operations_hash || '0';
+		let lastProvenDepositId = contract.data.last_proven_deposit_id ?? -1;
 
 		for (let i = 0; i < incomingDepositsCount; i++) {
 			const targetDepId = lastProvenDepositId + 1 + i;
-			const depositInfo = db.bridge_contract.pending_deposits.find((d) => d.deposit_id === targetDepId);
+			const depositInfo = contract.data.pending_deposits.find((d) => d.deposit_id === targetDepId);
 			if (!depositInfo) {
 				return res
 					.status(400)
@@ -67,7 +66,7 @@ router.post('/batch/submit', async (req, res) => {
 
 		// 4. DA Availability Simulation (Simulating EIP-4844 KZG Verifier)
 		// L1 asserts that the blob MUST be pre-published to the DA layer before evaluating Proof
-		const batch_id = Object.keys(db.bridge_contract.batch_history).length + 1;
+		const batch_id = Object.keys(contract.data.batch_history).length + 1;
 		try {
 			const daCheckRes = await fetch(`http://localhost:4000/archive/blobs/${batch_id}`);
 			if (!daCheckRes.ok) {
@@ -86,18 +85,26 @@ router.post('/batch/submit', async (req, res) => {
 			return res.status(400).json({ error: 'Zero-Knowledge Proof Verification Failed!' });
 		}
 
-		// 6. Update state
-		db.bridge_contract.current_state_root = newStateRoot;
-		db.bridge_contract.last_operations_hash = currentOpsHash;
-		db.bridge_contract.last_proven_deposit_id = lastProvenDepositId + incomingDepositsCount;
+		// 6. Update contract state
+		contract.data.current_state_root = newStateRoot;
+		contract.data.last_operations_hash = currentOpsHash;
+		contract.data.last_proven_deposit_id = lastProvenDepositId + incomingDepositsCount;
 
-		db.bridge_contract.batch_history[batch_id.toString()] = {
+		contract.data.batch_history[batch_id.toString()] = {
 			state_root: newStateRoot,
 			da_root: daRoot,
 			timestamp: Date.now(),
 		};
 
-		writeDB(db);
+		// 7. Emit batch accepted event log (giả lập EVM emit BatchAccepted)
+		eventLog.data.batch_events.push({
+			batch_id,
+			state_root: newStateRoot,
+			da_root: daRoot,
+			timestamp: Date.now(),
+		});
+
+		await Promise.all([contract.write(), eventLog.write()]);
 
 		console.log(`[L1/Batch] -------------------------------------`);
 		console.log(`[L1/Batch] SUCCESS — Batch #${batch_id} Verified & Accepted!`);

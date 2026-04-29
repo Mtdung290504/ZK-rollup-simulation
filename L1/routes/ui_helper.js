@@ -1,5 +1,5 @@
 import express from 'express';
-import { readDB } from '../lib/db.js';
+import { contract } from '../db/index.js';
 import { getPoseidon, poseidonHashArr } from '../../tools/poseidon.js';
 import { DenseMerkleTree } from '../../tools/merkle_tree.js';
 import path from 'path';
@@ -17,9 +17,8 @@ router.post('/auto-withdraw', async (req, res) => {
 	}
 
 	try {
-		// Fetch DB & DA Blob
-		const db = readDB();
-		const batchMeta = db.bridge_contract.batch_history[batch_id.toString()];
+		// Fetch DA Blob
+		const batchMeta = contract.data.batch_history[batch_id.toString()];
 		if (!batchMeta) return res.status(404).json({ error: 'Batch not found on L1' });
 
 		const archiveRes = await fetch(`http://localhost:4000/archive/blobs/${batch_id}`);
