@@ -1,15 +1,35 @@
 import express from 'express';
-import { contract, eventLog } from '../db/index.js';
+import { contract, eventLog, chainEnv } from '../db/index.js';
 import { verifyPlonkProof } from '../lib/plonk_verify.js';
 import { computePublicInputHash, computeOperationsHash } from '../lib/merkle_verify.js';
 
 const router = express.Router();
 
 router.post('/batch/submit', async (req, res) => {
-	const { proof, publicSignals, oldStateRoot, newStateRoot, daRoot, num_deposits } = req.body;
+	const { proof, publicSignals, oldStateRoot, newStateRoot, daRoot, num_deposits, operator_address } = req.body;
+
+	if (!operator_address) {
+		return res.status(400).json({ error: 'Missing operator_address' });
+	}
+
+	const SUBMIT_FEE = 3;
+	const currentBalance = Number(chainEnv.data.vault[operator_address] || 0);
+
+	// EVM Check 1: Can pay gas?
+	if (currentBalance < SUBMIT_FEE) {
+		return res.status(400).json({ error: 'EVM Revert: Operator has insufficient L1 ETH to pay submission fee (requires 3 ETH)' });
+	}
+
+	// EVM: Deduct Gas Fee immediately
+	chainEnv.data.vault[operator_address] = currentBalance - SUBMIT_FEE;
+
+	const revertWithGasConsumed = async (msg) => {
+		await chainEnv.write();
+		return res.status(400).json({ error: `Contract Revert: ${msg} (Gas consumed)` });
+	};
 
 	if (!proof || !publicSignals || !oldStateRoot || !newStateRoot || !daRoot) {
-		return res.status(400).json({ error: 'Missing batch parameters' });
+		return await revertWithGasConsumed('Missing batch parameters');
 	}
 
 	const incomingDepositsCount = Number(num_deposits || 0);
@@ -19,9 +39,7 @@ router.post('/batch/submit', async (req, res) => {
 
 		// 1. Check oldStateRoot matches the L1 current state
 		if (oldStateRoot !== currentStateRoot) {
-			return res
-				.status(400)
-				.json({ error: `State Root Mismatch! Expected ${currentStateRoot}, Got ${oldStateRoot}` });
+			return await revertWithGasConsumed(`State Root Mismatch! Expected ${currentStateRoot}, Got ${oldStateRoot}`);
 		}
 
 		// 2. Resolve L1 Operations Hash & Desync ID
@@ -32,9 +50,7 @@ router.post('/batch/submit', async (req, res) => {
 			const targetDepId = lastProvenDepositId + 1 + i;
 			const depositInfo = contract.data.pending_deposits.find((d) => d.deposit_id === targetDepId);
 			if (!depositInfo) {
-				return res
-					.status(400)
-					.json({ error: `Cannot rebuild Operations Hash: Deposit ID ${targetDepId} missing from queue.` });
+				return await revertWithGasConsumed(`Cannot rebuild Operations Hash: Deposit ID ${targetDepId} missing from queue.`);
 			}
 			currentOpsHash = await computeOperationsHash(
 				currentOpsHash,
@@ -61,7 +77,7 @@ router.post('/batch/submit', async (req, res) => {
 		// Circom public signals is an array of strings
 		if (publicSignals[0] !== expectedPublicInputHash) {
 			console.error(`[L1/Batch] Expected Hash: ${expectedPublicInputHash}, got ${publicSignals[0]}`);
-			return res.status(400).json({ error: 'Public Input Hash Mismatch. Invalid DA or State transition.' });
+			return await revertWithGasConsumed('Public Input Hash Mismatch. Invalid DA or State transition.');
 		}
 
 		// 4. DA Availability Simulation (Simulating EIP-4844 KZG Verifier)
@@ -70,19 +86,17 @@ router.post('/batch/submit', async (req, res) => {
 		try {
 			const daCheckRes = await fetch(`http://localhost:4000/archive/blobs/${batch_id}`);
 			if (!daCheckRes.ok) {
-				return res
-					.status(400)
-					.json({ error: 'Data Withholding Attack detected: DA Blobs not published to Archive Node!' });
+				return await revertWithGasConsumed('Data Withholding Attack detected: DA Blobs not published to Archive Node!');
 			}
 		} catch (e) {
-			return res.status(500).json({ error: 'Failed to communicate with DA Layer.' });
+			return await revertWithGasConsumed('Failed to communicate with DA Layer.');
 		}
 
 		// 5. SNARKJS ZK Proof Verify
 		const isValidProof = await verifyPlonkProof(proof, publicSignals);
 
 		if (!isValidProof) {
-			return res.status(400).json({ error: 'Zero-Knowledge Proof Verification Failed!' });
+			return await revertWithGasConsumed('Zero-Knowledge Proof Verification Failed!');
 		}
 
 		// 6. Update contract state
@@ -104,7 +118,7 @@ router.post('/batch/submit', async (req, res) => {
 			timestamp: Date.now(),
 		});
 
-		await Promise.all([contract.write(), eventLog.write()]);
+		await Promise.all([contract.write(), eventLog.write(), chainEnv.write()]);
 
 		console.log(`[L1/Batch] -------------------------------------`);
 		console.log(`[L1/Batch] SUCCESS — Batch #${batch_id} Verified & Accepted!`);

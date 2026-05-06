@@ -1,19 +1,72 @@
 import express from 'express';
 import { chainEnv, contract, eventLog } from '../db/index.js';
+import { ethers } from 'ethers';
+import { buildBabyjub } from 'circomlibjs';
+
+let babyJub;
+buildBabyjub().then((b) => { babyJub = b; });
 
 const router = express.Router();
 
 // L1 Server: MOCK DEPOSIT (L1 -> L2)
 router.post('/deposit', async (req, res) => {
-	const { l1_address, amount, l2_pub_x, l2_pub_y } = req.body;
+	const { l1_address, l1_signature, amount, l2_pub_x, l2_pub_y } = req.body;
 
-	if (!l1_address || !amount || amount <= 0 || !l2_pub_x || !l2_pub_y) {
-		return res.status(400).json({ error: 'Missing parameters. Requires l1_address, amount, l2_pub_x, l2_pub_y' });
+	if (!l1_address || !l1_signature || amount === undefined || !l2_pub_x || !l2_pub_y) {
+		return res
+			.status(400)
+			.json({ error: 'Missing parameters. Requires l1_address, l1_signature, amount, l2_pub_x, l2_pub_y' });
 	}
 
-	// Check vault balance
-	if (!chainEnv.data.vault[l1_address] || chainEnv.data.vault[l1_address] < amount) {
-		return res.status(400).json({ error: 'Insufficient ETH in vault' });
+	try {
+		const messageHash = ethers.solidityPackedKeccak256(
+			['string', 'uint256', 'uint256', 'uint256'],
+			['DEPOSIT_TO_L2', amount, BigInt(l2_pub_x), BigInt(l2_pub_y)],
+		);
+		const recoveredAddr = ethers.verifyMessage(ethers.getBytes(messageHash), l1_signature);
+		if (recoveredAddr.toLowerCase() !== l1_address.toLowerCase()) {
+			return res.status(400).json({ error: 'Invalid EVM Signature for this Deposit payload' });
+		}
+	} catch (e) {
+		return res.status(400).json({ error: 'Failed to verify EVM signature' });
+	}
+
+	const L1_GAS_FEE = 3;
+	
+	// EVM Check 1: Can pay gas?
+	if ((chainEnv.data.vault[l1_address] || 0) < L1_GAS_FEE) {
+		return res.status(400).json({ error: 'EVM Revert: Insufficient funds for gas (requires 3 ETH)' });
+	}
+
+	// EVM: Deduct Gas Fee immediately (Gas is consumed regardless of contract execution)
+	chainEnv.data.vault[l1_address] -= L1_GAS_FEE;
+
+	// Contract Check 1: Amount must be > 0 and integer
+	if (amount <= 0 || !Number.isInteger(amount)) {
+		await chainEnv.write();
+		return res.status(400).json({ error: 'Contract Revert: Deposit amount must be a positive integer. Gas consumed.' });
+	}
+
+	// Contract Check 2: L2 Public Key must be on BabyJubjub curve
+	if (babyJub) {
+		try {
+			const x = BigInt(l2_pub_x);
+			const y = BigInt(l2_pub_y);
+			const isValid = babyJub.inCurve([babyJub.F.e(x), babyJub.F.e(y)]);
+			if (!isValid) {
+				await chainEnv.write();
+				return res.status(400).json({ error: 'Contract Revert: L2 Public Key is not a valid point on the BabyJubjub curve. Gas consumed.' });
+			}
+		} catch (e) {
+			await chainEnv.write();
+			return res.status(400).json({ error: 'Contract Revert: Invalid L2 Public Key format. Gas consumed.' });
+		}
+	}
+
+	// EVM Check 2: Can pay value?
+	if (chainEnv.data.vault[l1_address] < amount) {
+		await chainEnv.write();
+		return res.status(400).json({ error: 'EVM Revert: Insufficient funds for value. Gas consumed.' });
 	}
 
 	// 1. Lock ETH

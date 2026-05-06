@@ -46,13 +46,19 @@ async function main() {
 	 * @param {string|null} userName
 	 */
 	function makeAccount(pubKey, balance, index, userName) {
+		const pub_x = '0x' + BigInt(pubKey.x).toString(16);
+		const pub_y = '0x' + BigInt(pubKey.y).toString(16);
 		return {
-			[pubKey.x]: {
-				pub_y: pubKey.y,
+			[pub_x]: {
+				pub_y: pub_y,
 				balance,
 				nonce: '0',
 				index,
 				__user_name__: userName ?? null,
+				snapshot: {
+					balance,
+					nonce: '0',
+				},
 			},
 		};
 	}
@@ -80,7 +86,6 @@ async function main() {
 	// 3. Ghi L2 DB
 	const l2_db = {
 		accounts: l2Accounts,
-		proven_accounts: JSON.parse(JSON.stringify(l2Accounts)),
 		transactions: [],
 		system: {
 			last_proven_tx_index: -1,
@@ -98,7 +103,7 @@ async function main() {
 		vault: {
 			[wallets.alice.l1.address]: 100.0,
 			[wallets.bob.l1.address]: 100.0,
-			[wallets.operator.l1.address]: 0.0,
+			[wallets.operator.l1.address]: 100.0,
 		},
 	};
 
@@ -126,7 +131,7 @@ async function main() {
 	fs.writeFileSync(archiveDbPath, JSON.stringify({ batches: {} }, null, 2));
 
 	console.log('[init_db] L1, L2 & Archive database initialized.');
-	console.log(`  L1 vault balances: Alice/Bob=100 ETH`);
+	console.log(`  L1 vault balances: Alice/Bob/Operator=100 ETH`);
 	console.log(`  L2 Treasury balance: ${MAX_UINT128.toString()}`);
 	console.log(`  Initial State Root: ${initialStateRoot}`);
 }
