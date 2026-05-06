@@ -20,8 +20,11 @@ router.post('/sign-and-transfer', async (req, res) => {
 		// 1. Recover sender pubkey from privKey
 		const privBuf = Buffer.from(privateKey, 'hex');
 		const pub = eddsa.prv2pub(privBuf);
-		const from_x = poseidon.F.toString(pub[0]);
-		const from_y = poseidon.F.toString(pub[1]);
+		const from_x = '0x' + BigInt(poseidon.F.toString(pub[0])).toString(16);
+		const from_y = '0x' + BigInt(poseidon.F.toString(pub[1])).toString(16);
+
+		const to_x_hex = to_x.startsWith('0x') ? to_x : '0x' + BigInt(to_x).toString(16);
+		const to_y_hex = to_y.startsWith('0x') ? to_y : '0x' + BigInt(to_y).toString(16);
 
 		// 2. Lookup sender nonce in DB — accounts keyed by pub_x (O(1))
 		const db = l2Store.data;
@@ -41,8 +44,8 @@ router.post('/sign-and-transfer', async (req, res) => {
 			BigInt(type),
 			BigInt(from_x),
 			BigInt(from_y),
-			BigInt(to_x),
-			BigInt(to_y),
+			BigInt(to_x_hex),
+			BigInt(to_y_hex),
 			amt,
 			f,
 			nnc,
@@ -62,8 +65,8 @@ router.post('/sign-and-transfer', async (req, res) => {
 				tx_type: type,
 				from_x,
 				from_y,
-				to_x,
-				to_y,
+				to_x: to_x_hex,
+				to_y: to_y_hex,
 				amount,
 				fee,
 				nonce,

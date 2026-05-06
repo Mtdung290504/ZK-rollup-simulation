@@ -29,8 +29,8 @@ router.post('/transfer', async (req, res) => {
 		const poseidon = await getPoseidon();
 		const eddsa = await getEddsa();
 		const wallets = JSON.parse(fs.readFileSync(WALLETS_PATH, 'utf8'));
-		const TREASURY_PUB_X = wallets.treasury.l2.publicKey.x;
-		const OPERATOR_PUB_X = wallets.operator.l2.publicKey.x;
+		const TREASURY_PUB_X = '0x' + BigInt(wallets.treasury.l2.publicKey.x).toString(16);
+		const OPERATOR_PUB_X = '0x' + BigInt(wallets.operator.l2.publicKey.x).toString(16);
 
 		/**
 		 * Hash lá Merkle từ pub_x (key) và data

@@ -8,16 +8,8 @@ const router = express.Router();
 // only needs an endpoint to submit the final proof (which batch_prove.js will call after creating proof)
 
 router.post('/batch/submit-proof', async (req, res) => {
-	const {
-		proof,
-		publicSignals,
-		oldStateRoot,
-		newStateRoot,
-		daRoot,
-		num_deposits,
-		transactions,
-		new_proven_accounts,
-	} = req.body;
+	const { proof, publicSignals, oldStateRoot, newStateRoot, daRoot, num_deposits, transactions, snapshot_updates, operator_address } =
+		req.body;
 
 	if (!proof || !publicSignals || !oldStateRoot || !newStateRoot || !daRoot || !transactions) {
 		return res.status(400).json({ error: 'Missing batch/proof data' });
@@ -46,7 +38,7 @@ router.post('/batch/submit-proof', async (req, res) => {
 		const l1Res = await fetch('http://localhost:3000/contract/batch/submit', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ proof, publicSignals, oldStateRoot, newStateRoot, daRoot, num_deposits }),
+			body: JSON.stringify({ proof, publicSignals, oldStateRoot, newStateRoot, daRoot, num_deposits, operator_address }),
 		});
 
 		const l1Data = await l1Res.json();
@@ -59,8 +51,17 @@ router.post('/batch/submit-proof', async (req, res) => {
 		db.system.last_proven_tx_index += transactions.length;
 		if (num_deposits) db.system.last_proven_deposit_id += Number(num_deposits);
 
-		// Ghi nhận mốc Account an toàn!
-		if (new_proven_accounts) db.proven_accounts = new_proven_accounts;
+		// Ghi nhận mốc Account an toàn (Snapshot)
+		if (snapshot_updates) {
+			for (const [pub_x, snap] of Object.entries(snapshot_updates)) {
+				if (db.accounts[pub_x]) {
+					db.accounts[pub_x].snapshot = {
+						balance: snap.balance.toString(),
+						nonce: snap.nonce.toString(),
+					};
+				}
+			}
+		}
 
 		await l2Store.write();
 

@@ -32,7 +32,7 @@ router.get('/sync-deposits', async (req, res) => {
 
 		const poseidon = await getPoseidon();
 		const wallets = JSON.parse(fs.readFileSync(WALLETS_PATH, 'utf8'));
-		const TREASURY_PUB_X = wallets.treasury.l2.publicKey.x;
+		const TREASURY_PUB_X = '0x' + BigInt(wallets.treasury.l2.publicKey.x).toString(16);
 
 		const tree = new DenseMerkleTree(poseidon, 4, cachePath);
 		tree.loadNodes(db.system.merkle_tree.nodes);
@@ -63,6 +63,10 @@ router.get('/sync-deposits', async (req, res) => {
 					nonce: '0',
 					index: newIndex,
 					__user_name__: null,
+					snapshot: {
+						balance: '0',
+						nonce: '0',
+					},
 				};
 				console.log(
 					`[L2/Sync] Onboarded new L2 user at index ${newIndex} (pub_x: ${l2_pub_x.slice(0, 10)}...)`,

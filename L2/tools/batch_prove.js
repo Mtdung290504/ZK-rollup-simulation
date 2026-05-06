@@ -40,9 +40,7 @@ async function main() {
 	const useCache = process.argv.includes('--cache');
 
 	if (!fs.existsSync(L1_CONTRACT_PATH)) {
-		console.error(
-			`[Error] L1 contract_storage không tồn tại. Hãy chắc chắn Server đang chạy / đã init.`,
-		);
+		console.error(`[Error] L1 contract_storage không tồn tại. Hãy chắc chắn Server đang chạy / đã init.`);
 		process.exit(1);
 	}
 	const l2_db = l2Store.data;
@@ -67,19 +65,24 @@ async function main() {
 	const tree = new DenseMerkleTree(poseidon, CONFIG.DEPTH, CACHE_PATH);
 	const wallets = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'wallets.json'), 'utf8'));
 
-	const MAX_UINT128 = 340282366920938463463374607431768211455n;
-
 	let simAccounts = {};
-	if (l2_db.proven_accounts) {
-		const temp = JSON.parse(JSON.stringify(l2_db.proven_accounts));
-		for (const key in temp) {
-			simAccounts[key] = temp[key];
-			simAccounts[key].balance = BigInt(temp[key].balance);
-			simAccounts[key].nonce = BigInt(temp[key].nonce);
+	for (const [pub_x, acc] of Object.entries(l2_db.accounts)) {
+		if (acc.snapshot) {
+			simAccounts[pub_x] = {
+				pub_y: acc.pub_y,
+				balance: BigInt(acc.snapshot.balance),
+				nonce: BigInt(acc.snapshot.nonce),
+				index: acc.index,
+			};
+		} else {
+			// Fallback (nên luôn có nếu init_db/sync chạy đúng)
+			simAccounts[pub_x] = {
+				pub_y: acc.pub_y,
+				balance: 0n,
+				nonce: 0n,
+				index: acc.index,
+			};
 		}
-	} else {
-		console.error('Lỗi: Không tìm thấy proven_accounts. Hãy chạy lại node tools/init_db.js');
-		process.exit(1);
 	}
 
 	// hashLeaf nhận pub_x từ key (không có trong value nữa)
@@ -88,19 +91,6 @@ async function main() {
 
 	for (const [pub_x, acc] of Object.entries(simAccounts)) {
 		tree.updateLeaf(acc.index, hashLeaf(pub_x, acc));
-	}
-
-	// Sync new accounts from L2 DB that aren't in proven_accounts yet
-	for (const [pub_x, acc] of Object.entries(l2_db.accounts)) {
-		if (!simAccounts[pub_x]) {
-			simAccounts[pub_x] = {
-				pub_y: acc.pub_y,
-				balance: 0n,
-				nonce: 0n,
-				index: acc.index,
-			};
-			tree.updateLeaf(acc.index, hashLeaf(pub_x, simAccounts[pub_x]));
-		}
 	}
 
 	// KHÔNG CẦN CHẠY O(N) VÒNG LẶP TRANSACTION NỮA
@@ -364,7 +354,8 @@ async function main() {
 		daRoot: daTreeRoot,
 		num_deposits: numDeposits,
 		transactions: availableTxs,
-		new_proven_accounts: simAccounts,
+		snapshot_updates: simAccounts,
+		operator_address: wallets.operator.l1.address,
 	};
 
 	console.log('L2 ALL LEAVES:', daHashesForTree);

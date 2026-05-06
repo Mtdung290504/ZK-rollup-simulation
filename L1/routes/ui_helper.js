@@ -2,6 +2,7 @@ import express from 'express';
 import { contract } from '../db/index.js';
 import { getPoseidon, poseidonHashArr } from '../../tools/poseidon.js';
 import { DenseMerkleTree } from '../../tools/merkle_tree.js';
+import { ethers } from 'ethers';
 import path from 'path';
 import fs from 'fs';
 
@@ -9,11 +10,60 @@ const WALLETS_PATH = path.join(process.cwd(), 'config', 'wallets.json');
 
 const router = express.Router();
 
-router.post('/auto-withdraw', async (req, res) => {
-	const { batch_id, tx_index, l1_address } = req.body;
+router.post('/build-deposit', async (req, res) => {
+	const { l1_private_key, l2_pub_x, l2_pub_y, amount } = req.body;
 
-	if (batch_id === undefined || tx_index === undefined || !l1_address) {
-		return res.status(400).json({ error: 'Missing batch_id, tx_index, or l1_address' });
+	if (!l1_private_key || !l2_pub_x || !l2_pub_y || amount === undefined || amount === '') {
+		return res.status(400).json({ error: 'Missing parameters' });
+	}
+
+	// Derive address from private key using ethers
+	let derivedAddress = null;
+	let signature = null;
+	try {
+		const wallet = new ethers.Wallet(l1_private_key);
+		derivedAddress = wallet.address;
+
+		// Generate an EVM signature for realism
+		const messageHash = ethers.solidityPackedKeccak256(
+			['string', 'uint256', 'uint256', 'uint256'],
+			['DEPOSIT_TO_L2', amount, BigInt(l2_pub_x), BigInt(l2_pub_y)],
+		);
+		signature = await wallet.signMessage(ethers.getBytes(messageHash));
+	} catch (e) {
+		return res.status(400).json({ error: 'Invalid private key format' });
+	}
+
+	const payload = {
+		l1_address: derivedAddress,
+		l1_signature: signature,
+		amount: Number(amount),
+		l2_pub_x,
+		l2_pub_y,
+	};
+
+	res.status(200).json(payload);
+});
+
+router.post('/build-withdraw', async (req, res) => {
+	const { batch_id, tx_index, l1_private_key } = req.body;
+
+	if (batch_id === undefined || batch_id === '' || tx_index === undefined || tx_index === '' || !l1_private_key) {
+		return res.status(400).json({ error: 'Missing batch_id, tx_index, or l1_private_key' });
+	}
+
+	// Mock derive address from private key
+	const wallets = JSON.parse(fs.readFileSync(WALLETS_PATH, 'utf8'));
+	let l1_address = null;
+	for (const key in wallets) {
+		if (wallets[key].l1 && wallets[key].l1.privateKey === l1_private_key) {
+			l1_address = wallets[key].l1.address;
+			break;
+		}
+	}
+
+	if (!l1_address) {
+		return res.status(400).json({ error: 'Invalid private key or not registered in mock EVM' });
 	}
 
 	try {
@@ -143,17 +193,12 @@ router.post('/auto-withdraw', async (req, res) => {
 		};
 
 		console.log('ALL LEAVES:', node_hashes.slice(n_nodes));
-		const resWithdraw = await fetch('http://localhost:3000/contract/withdraw', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(payload),
-		});
 
-		const data = await resWithdraw.json();
-		return res.status(resWithdraw.status).json(data);
+		// Return payload instead of auto-submitting
+		return res.status(200).json(payload);
 	} catch (e) {
 		console.error(e);
-		return res.status(500).json({ error: 'Helper UI withdraw failed' });
+		return res.status(500).json({ error: 'Helper UI withdraw build failed' });
 	}
 });
 

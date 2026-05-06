@@ -10,15 +10,10 @@ const l2Schema = SDO.schema({
 			nonce: 'string',
 			index: 'number',
 			__user_name__: 'string?',
-		},
-	},
-	proven_accounts: {
-		$record: {
-			pub_y: 'string',
-			balance: 'string',
-			nonce: 'string',
-			index: 'number',
-			__user_name__: 'string?',
+			snapshot: {
+				balance: 'string',
+				nonce: 'string',
+			},
 		},
 	},
 	transactions: [
@@ -54,7 +49,6 @@ export const l2Store = await SDO.create({
 	schema: l2Schema,
 	default: {
 		accounts: {},
-		proven_accounts: {},
 		transactions: [],
 		system: {
 			last_proven_tx_index: -1,
