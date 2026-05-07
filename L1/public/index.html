@@ -534,7 +534,7 @@
 					});
 					const data = await res.json();
 					if (res.ok) {
-						showAlert('wit-alert', `Withdrawal Claimed! Tx Index: ${data.claimed_txIndex}`, false);
+						showAlert('wit-alert', `Success! Claimed ${data.amount_claimed} ETH from L2 Treasury.`, false);
 						document.getElementById('wit-payload').style.display = 'none';
 						document.getElementById('wit-submit-btn').style.display = 'none';
 						fetchState();
