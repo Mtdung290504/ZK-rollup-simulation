@@ -51,8 +51,8 @@ async function main() {
 		privateKey: privBuf.toString('hex'),
 		publicKey: {
 			/** pub_x là định danh thực sự trên L2 (key trong accounts map) */
-			x: F.toString(pub[0]),
-			y: F.toString(pub[1]),
+			x: '0x' + BigInt(F.toString(pub[0])).toString(16),
+			y: '0x' + BigInt(F.toString(pub[1])).toString(16),
 		},
 	};
 
