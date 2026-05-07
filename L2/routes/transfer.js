@@ -18,6 +18,10 @@ router.post('/transfer', async (req, res) => {
 		return res.status(400).json({ error: 'Missing transfer parameters' });
 	}
 
+	if (fee.toString() !== '1') {
+		return res.status(400).json({ error: 'Invalid fee amount. Required L2 fee is 1.' });
+	}
+
 	const type = Number(tx_type || 0);
 	const amt = BigInt(amount);
 	const f = BigInt(fee);

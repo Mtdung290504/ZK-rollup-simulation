@@ -5,15 +5,13 @@
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 		<title>L2 Web Wallet — ZK-Rollup</title>
 		<style>
-			@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap');
-
 			:root {
-				--bg: #030712;
-				--surface: rgba(31, 41, 55, 0.4);
-				--border: rgba(255, 255, 255, 0.08);
+				--bg: #111827;
+				--surface: #1f2937;
+				--border: #374151;
 				--primary: #3b82f6;
-				--primary-hover: #2563eb;
-				--glow: rgba(59, 130, 246, 0.2);
+				--accent: #10b981;
+				--danger: #ef4444;
 				--text-main: #f9fafb;
 				--text-dim: #9ca3af;
 			}
@@ -22,7 +20,11 @@
 				margin: 0;
 				padding: 0;
 				box-sizing: border-box;
-				font-family: 'Outfit', sans-serif;
+				font-family:
+					'Inter',
+					system-ui,
+					-apple-system,
+					sans-serif;
 			}
 
 			body {
@@ -30,323 +32,474 @@
 				color: var(--text-main);
 				min-height: 100vh;
 				display: flex;
-				background-image:
-					radial-gradient(circle at 15% 50%, rgba(59, 130, 246, 0.15), transparent 25%),
-					radial-gradient(circle at 85% 30%, rgba(139, 92, 246, 0.15), transparent 25%);
-			}
-
-			aside {
-				width: 280px;
-				background: rgba(17, 24, 39, 0.7);
-				border-right: 1px solid var(--border);
-				padding: 2rem;
-				display: flex;
 				flex-direction: column;
-				gap: 1rem;
-				backdrop-filter: blur(20px);
+				font-size: 0.95rem;
 			}
 
-			h2 {
-				font-weight: 800;
-				font-size: 1.5rem;
-				margin-bottom: 2rem;
-				background: linear-gradient(to right, #fff, #9ca3af);
-				-webkit-background-clip: text;
-				background-clip: text;
-				color: transparent;
-			}
-
-			.nav-item {
-				padding: 1rem;
-				border-radius: 12px;
-				cursor: pointer;
-				transition: all 0.2s ease;
-				color: var(--text-dim);
-				font-weight: 600;
+			header {
+				width: 100%;
+				padding: 1.5rem 2rem;
+				border-bottom: 1px solid var(--border);
+				background: var(--surface);
 				display: flex;
+				justify-content: space-between;
 				align-items: center;
-				gap: 0.75rem;
 			}
 
-			.nav-item:hover,
-			.nav-item.active {
-				background: var(--glow);
+			h1 {
+				font-size: 1.5rem;
+				font-weight: 600;
 				color: var(--text-main);
 			}
 
-			main {
-				flex: 1;
-				padding: 3rem;
-				overflow-y: auto;
+			.container {
+				width: 100%;
+				max-width: 1400px;
+				margin: 0 auto;
+				padding: 2rem;
+				display: grid;
+				grid-template-columns: 1fr 1fr;
+				gap: 2rem;
+				align-items: start;
 			}
 
-			.section {
-				display: none;
-				animation: fadeIn 0.4s ease forwards;
-			}
-
-			.section.active {
-				display: block;
-			}
-
-			@keyframes fadeIn {
-				from {
-					opacity: 0;
-					transform: translateY(10px);
-				}
-				to {
-					opacity: 1;
-					transform: translateY(0);
-				}
-			}
-
-			.glass-card {
+			.panel {
 				background: var(--surface);
 				border: 1px solid var(--border);
-				border-radius: 24px;
-				padding: 2.5rem;
-				backdrop-filter: blur(12px);
-				max-width: 600px;
-				box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+				border-radius: 6px;
+				padding: 1.5rem;
+				box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+			}
+
+			.panel-title {
+				font-size: 1.1rem;
+				font-weight: 600;
+				color: var(--text-dim);
+				margin-bottom: 1.25rem;
+				border-bottom: 1px solid var(--border);
+				padding-bottom: 0.5rem;
+				text-transform: uppercase;
+				letter-spacing: 0.05em;
+				display: flex;
+				justify-content: space-between;
+				align-items: center;
+			}
+
+			.stat-grid {
+				display: grid;
+				grid-template-columns: 1fr 1fr;
+				gap: 1rem;
+				margin-bottom: 1.5rem;
+			}
+
+			.stat-box {
+				background: rgba(0, 0, 0, 0.2);
+				padding: 1rem;
+				border-radius: 4px;
+				border: 1px solid var(--border);
+			}
+
+			.stat-label {
+				font-size: 0.8rem;
+				color: var(--text-dim);
+				margin-bottom: 0.85rem;
+				text-transform: capitalize;
+			}
+
+			.stat-value {
+				font-size: 1.25rem;
+				font-weight: 600;
+				font-family: monospace;
+				word-break: break-all;
 			}
 
 			.form-group {
-				margin-bottom: 1.5rem;
+				margin-bottom: 1rem;
 			}
+
 			label {
 				display: block;
 				margin-bottom: 0.5rem;
 				color: var(--text-dim);
-				font-size: 0.9rem;
-				font-weight: 600;
-				text-transform: uppercase;
-				letter-spacing: 0.05em;
+				font-size: 0.85rem;
 			}
 
 			input {
 				width: 100%;
-				padding: 1rem 1.25rem;
+				padding: 0.5rem 0.75rem;
 				background: rgba(0, 0, 0, 0.2);
 				border: 1px solid var(--border);
-				border-radius: 12px;
+				border-radius: 4px;
 				color: white;
-				font-size: 1rem;
-				outline: none;
-				transition: border-color 0.2s;
+				font-family: monospace;
+				font-size: 0.9rem;
 			}
 
 			input:focus {
+				outline: none;
 				border-color: var(--primary);
 			}
 
-			button {
+			input:read-only {
+				background: rgba(0, 0, 0, 0.4);
+				color: var(--text-dim);
+				cursor: not-allowed;
+			}
+
+			.btn {
 				width: 100%;
-				padding: 1rem;
-				background: var(--primary);
-				color: white;
+				padding: 0.75rem;
 				border: none;
-				border-radius: 12px;
-				font-size: 1.1rem;
+				border-radius: 4px;
 				font-weight: 600;
 				cursor: pointer;
-				transition: all 0.2s;
+				color: white;
 				margin-top: 1rem;
-				box-shadow: 0 4px 14px 0 rgba(59, 130, 246, 0.39);
 			}
 
-			button:hover {
-				background: var(--primary-hover);
-				transform: translateY(-2px);
-				box-shadow: 0 6px 20px rgba(59, 130, 246, 0.5);
+			.btn-primary {
+				background: var(--primary);
+			}
+			.btn-primary:hover {
+				background: #2563eb;
 			}
 
-			.log-box {
-				margin-top: 1.5rem;
-				background: #000;
+			.alert {
+				margin-top: 1rem;
 				padding: 1rem;
-				border-radius: 8px;
-				font-family: monospace;
-				font-size: 0.85rem;
-				color: #10b981;
-				white-space: pre-wrap;
+				border-radius: 4px;
 				display: none;
+				font-size: 0.9rem;
+				word-break: break-word;
+				white-space: pre-wrap;
 			}
 
-			.balance-hero {
-				font-size: 4rem;
-				font-weight: 800;
-				margin: 1rem 0;
-				background: linear-gradient(135deg, #10b981 0%, #3b82f6 100%);
-				-webkit-background-clip: text;
-				background-clip: text;
-				color: transparent;
+			.alert.error {
+				background: rgba(239, 68, 68, 0.1);
+				border: 1px solid var(--danger);
+				color: #fca5a5;
+			}
+
+			.alert.success {
+				background: rgba(16, 185, 129, 0.1);
+				border: 1px solid var(--accent);
+				color: #6ee7b7;
+			}
+
+			table {
+				width: 100%;
+				border-collapse: collapse;
+				font-size: 0.85rem;
+			}
+
+			th,
+			td {
+				padding: 0.75rem;
+				text-align: left;
+				border-bottom: 1px solid var(--border);
+			}
+
+			th {
+				color: var(--text-dim);
+				font-weight: 600;
+			}
+
+			td {
+				font-family: monospace;
 			}
 		</style>
 	</head>
 	<body>
-		<aside>
-			<h2>L2 Wallet</h2>
-			<div class="nav-item active" onclick="switchTab('transfer')">📤 Send TX (Soft Finality)</div>
-			<div class="nav-item" onclick="switchTab('keys')">🔑 Keystore Manager</div>
-			<div class="nav-item" onclick="switchTab('network')">🌐 Network State</div>
-		</aside>
+		<header>
+			<div>
+				<h1>L2 Web Wallet</h1>
+			</div>
+		</header>
 
-		<main>
-			<!-- TRANSFER SECTION -->
-			<div id="transfer" class="section active">
-				<div class="glass-card">
-					<h3 style="font-size: 2rem; margin-bottom: 2rem">Transfer Funds</h3>
+		<main class="container">
+			<!-- LEFT COLUMN: NETWORK STATE -->
+			<div class="state-column" style="display: flex; flex-direction: column; gap: 1.5rem">
+				<div class="panel">
+					<div class="panel-title">L2 Network Overview</div>
+					<div class="stat-grid">
+						<div class="stat-box">
+							<div class="stat-label">Global State Root</div>
+							<div class="stat-value" id="net-root" style="font-size: 1rem">Loading...</div>
+						</div>
+						<div class="stat-box">
+							<div class="stat-label">Mempool (Unproven Txs)</div>
+							<div class="stat-value" id="net-mempool">0</div>
+						</div>
+					</div>
+
+					<h3 style="font-size: 1rem; margin-bottom: 1rem; color: var(--text-main)">
+						Densified Merkle Tree Accounts
+					</h3>
+					<div
+						style="
+							background: rgba(0, 0, 0, 0.2);
+							border: 1px solid var(--border);
+							border-radius: 4px;
+							overflow-x: auto;
+							max-height: 400px;
+							overflow-y: auto;
+						"
+					>
+						<table id="accounts-table">
+							<thead>
+								<tr>
+									<th>Index</th>
+									<th>Owner</th>
+									<th>Balance</th>
+									<th>Nonce</th>
+									<th>Pub Key X</th>
+								</tr>
+							</thead>
+							<tbody id="accounts-body">
+								<!-- Populated by JS -->
+							</tbody>
+						</table>
+					</div>
+				</div>
+			</div>
+
+			<!-- RIGHT COLUMN: ACTIONS -->
+			<div class="action-column" style="display: flex; flex-direction: column; gap: 1.5rem">
+				<!-- KEYSTORE PANEL -->
+				<div class="panel" style="border-top: 3px solid var(--accent)">
+					<div class="panel-title">Authentication (Keystore)</div>
+					<div class="form-group" style="margin-bottom: 0">
+						<label style="display: flex; justify-content: space-between; align-items: center">
+							msg.sender (L2 EdDSA Private Key)
+							<span
+								style="cursor: pointer; font-size: 0.8rem; text-decoration: underline; color: #9ca3af"
+								onclick="saveKey()"
+								>Save to LocalStorage</span
+							>
+						</label>
+						<input type="password" id="sk-input" placeholder="e.g. 5d4b..." />
+					</div>
+				</div>
+
+				<!-- TRANSFER PANEL -->
+				<div class="panel" style="border-top: 3px solid var(--primary)">
+					<div class="panel-title">
+						<span>Transfer / Withdraw Funds</span>
+						<span style="font-size: 0.9rem; font-weight: normal; color: #9ca3af">(Fee: 1 L2 Token)</span>
+					</div>
+
+					<div
+						class="form-group"
+						style="
+							padding: 1rem;
+							background: rgba(0, 0, 0, 0.2);
+							border: 1px solid var(--border);
+							border-radius: 4px;
+							margin-bottom: 1.5rem;
+						"
+					>
+						<label
+							style="
+								display: flex;
+								align-items: center;
+								gap: 0.5rem;
+								cursor: pointer;
+								color: var(--text-main);
+								font-weight: 600;
+								margin: 0;
+							"
+						>
+							<input
+								type="checkbox"
+								id="enable-withdraw"
+								onchange="toggleWithdraw()"
+								style="width: auto; margin: 0"
+							/>
+							Enable Withdraw (L2 -> L1)
+						</label>
+						<div
+							id="withdraw-info"
+							style="display: none; font-size: 0.8rem; color: var(--text-dim); margin-top: 0.5rem"
+						>
+							Funds will be sent to the Treasury. Enter the L1 EVM Address that will receive the funds.
+						</div>
+					</div>
+
 					<div class="form-group">
 						<label>Receiver PublicKey X</label>
-						<input type="text" id="tx-to-x" placeholder="116009003728..." />
+						<input type="text" id="tx-to-x" placeholder="0x..." />
 					</div>
 					<div class="form-group">
 						<label>Receiver PublicKey Y</label>
-						<input type="text" id="tx-to-y" placeholder="472901389472..." />
+						<input type="text" id="tx-to-y" placeholder="0x..." />
 					</div>
+					<div class="form-group" id="l1-addr-group" style="display: none">
+						<label>Receiver L1 Address (EVM)</label>
+						<input type="text" id="tx-l1-addr" placeholder="0x..." />
+					</div>
+
 					<div class="form-group">
 						<label>Amount (L2 Tokens)</label>
 						<input type="number" id="tx-amount" value="5" />
 					</div>
+
+					<button class="btn" style="background: #ef4444" onclick="buildPayload()">1. Build Payload</button>
+
 					<div
-						class="form-group"
-						style="margin-top: 1.5rem; padding: 1rem; border: 1px dashed var(--primary); border-radius: 8px"
-					>
-						<label style="color: var(--primary)">Optional: Enable Withdraw (L2 -> L1)</label>
-						<input
-							type="text"
-							id="tx-l1-addr"
-							placeholder="Your L1 Address (e.g. 0x82...)"
-							style="margin-top: 0.5rem"
-						/>
-						<p style="font-size: 0.8rem; color: var(--text-dim); margin-top: 0.5rem">
-							For withdrawal, Receiver PublicKey MUST be Treasury's.
-						</p>
-					</div>
-					<button onclick="sendTransfer()">Sign & Send</button>
-
-					<div id="transfer-log" class="log-box"></div>
-				</div>
-			</div>
-
-			<!-- KEYSTORE SECTION -->
-			<div id="keys" class="section">
-				<div class="glass-card">
-					<h3 style="font-size: 2rem; margin-bottom: 2rem">Keystore</h3>
-					<p style="color: var(--text-dim); margin-bottom: 1.5rem">
-						Enter your raw 32-byte EdDSA Private Key (from config/wallets.json). Used for local signing
-						simulated via proxy.
-					</p>
-					<div class="form-group">
-						<label>Private Key (Hex)</label>
-						<input type="password" id="sk-input" placeholder="e.g. 5d4b..." />
-					</div>
-					<button onclick="saveKey()">Save to LocalStorage</button>
-				</div>
-			</div>
-
-			<!-- NETWORK SECTION -->
-			<div id="network" class="section">
-				<div class="glass-card" style="max-width: 800px">
-					<h3 style="font-size: 2rem; margin-bottom: 1rem">L2 Network Overview</h3>
-					<div style="display: flex; gap: 2rem; margin-bottom: 2rem">
-						<div>
-							<div style="color: var(--text-dim)">Global State Root</div>
-							<div style="font-family: monospace; font-size: 1.2rem; margin-top: 0.5rem" id="net-root">
-								Loading...
-							</div>
-						</div>
-					</div>
-
-					<div style="display: flex; gap: 2rem; margin-bottom: 2rem">
-						<div>
-							<div style="color: var(--text-dim)">L1 Deposits Last Synced</div>
-							<div style="font-size: 1.5rem; font-weight: bold; margin-top: 0.5rem" id="net-deposit-id">
-								0
-							</div>
-						</div>
-						<div>
-							<div style="color: var(--text-dim)">Unproven Txs (Mempool)</div>
-							<div style="font-size: 1.5rem; font-weight: bold; margin-top: 0.5rem" id="net-mempool">
-								0
-							</div>
-						</div>
-					</div>
-
-					<h4 style="margin-bottom: 1rem; color: var(--text-dim)">L2 Densified Merkle Tree Accounts:</h4>
-					<pre
-						id="net-accounts"
+						id="tx-payload"
+						class="alert"
 						style="
-							background: #000;
-							padding: 1rem;
-							border-radius: 12px;
-							overflow-x: auto;
-							font-size: 0.9rem;
-							color: #cbd5e1;
+							display: none;
+							background: rgba(0, 0, 0, 0.4);
+							color: #10b981;
+							font-family: monospace;
+							font-size: 0.85rem;
+							border: 1px solid var(--border);
 						"
-					></pre>
+					></div>
+
+					<button id="btn-sign-send" class="btn btn-primary" style="display: none" onclick="sendTransfer()">
+						2. Sign & Send
+					</button>
+
+					<div id="transfer-alert" class="alert"></div>
 				</div>
 			</div>
 		</main>
 
 		<script>
-			// Init keystore
+			function showAlert(id, msg, isError) {
+				const el = document.getElementById(id);
+				el.innerText = msg;
+				el.className = 'alert ' + (isError ? 'error' : 'success');
+				el.style.display = 'block';
+			}
+
+			function hideAlert(id) {
+				const el = document.getElementById(id);
+				el.style.display = 'none';
+			}
+
 			if (localStorage.getItem('zk_sk')) {
 				document.getElementById('sk-input').value = localStorage.getItem('zk_sk');
 			}
 
-			function switchTab(tabId) {
-				document.querySelectorAll('.section').forEach((s) => s.classList.remove('active'));
-				document.querySelectorAll('.nav-item').forEach((n) => n.classList.remove('active'));
-				document.getElementById(tabId).classList.add('active');
-				event.currentTarget.classList.add('active');
-				if (tabId === 'network') fetchNetworkState();
-			}
-
 			function saveKey() {
 				const val = document.getElementById('sk-input').value;
+				if (!val) return alert('Please enter a key to save.');
 				localStorage.setItem('zk_sk', val);
-				alert('Private key saved strictly in localStorage!');
+				alert('Private key saved to localStorage!');
 			}
 
-			async function sendTransfer() {
-				const privateKey = localStorage.getItem('zk_sk');
-				if (!privateKey) return alert('Please save Private Key in Keystore first.');
+			const TREASURY_PUB_X = '0x2cc96d359e6cb8ed2221810e012fe421814291ec1d73f0dd74f745fa0f4087c4';
+			const TREASURY_PUB_Y = '0x14b6591bb3bf3dcfef1d00d5cfc6cb21f241773f63cd23dfc5b1e3bddef95712';
+
+			function toggleWithdraw() {
+				const isChecked = document.getElementById('enable-withdraw').checked;
+				const toX = document.getElementById('tx-to-x');
+				const toY = document.getElementById('tx-to-y');
+				const l1Fields = document.getElementById('l1-addr-group');
+				const witInfo = document.getElementById('withdraw-info');
+
+				hideAlert('transfer-alert');
+
+				if (isChecked) {
+					l1Fields.style.display = 'block';
+					witInfo.style.display = 'block';
+					toX.value = TREASURY_PUB_X;
+					toY.value = TREASURY_PUB_Y;
+					toX.readOnly = true;
+					toY.readOnly = true;
+				} else {
+					l1Fields.style.display = 'none';
+					witInfo.style.display = 'none';
+					toX.value = '';
+					toY.value = '';
+					toX.readOnly = false;
+					toY.readOnly = false;
+					document.getElementById('tx-l1-addr').value = '';
+				}
+			}
+
+			let currentPayload = null;
+
+			async function buildPayload() {
+				hideAlert('transfer-alert');
+				document.getElementById('tx-payload').style.display = 'none';
+				document.getElementById('btn-sign-send').style.display = 'none';
 
 				const to_x = document.getElementById('tx-to-x').value;
 				const to_y = document.getElementById('tx-to-y').value;
 				const amount = document.getElementById('tx-amount').value;
-				const l1_address = document.getElementById('tx-l1-addr').value;
-				const tx_type = l1_address ? 2 : 0;
-				const logBox = document.getElementById('transfer-log');
+				const isWithdraw = document.getElementById('enable-withdraw').checked;
 
-				logBox.style.display = 'block';
-				logBox.innerText = 'Signing payload and sending broadcast request...';
+				let l1_address = '';
+				if (isWithdraw) {
+					l1_address = document.getElementById('tx-l1-addr').value;
+				}
+
+				if (!to_x || !to_y || !amount) {
+					return showAlert('transfer-alert', 'Missing Receiver Public Key or Amount', true);
+				}
+
+				try {
+					const feeRes = await fetch('/l2/ui/fee');
+					const feeData = await feeRes.json();
+					const fee = feeData.fee;
+
+					currentPayload = {
+						tx_type: isWithdraw ? 2 : 0,
+						to_x,
+						to_y,
+						amount,
+						fee,
+						l1_address,
+					};
+
+					const payloadEl = document.getElementById('tx-payload');
+					payloadEl.innerText = 'L2 TX PAYLOAD:\n\n' + JSON.stringify(currentPayload, null, 2);
+					payloadEl.style.display = 'block';
+					document.getElementById('btn-sign-send').style.display = 'block';
+				} catch (e) {
+					showAlert('transfer-alert', 'Failed to fetch L2 Fee from Network', true);
+				}
+			}
+
+			async function sendTransfer() {
+				hideAlert('transfer-alert');
+				if (!currentPayload) return;
+
+				const rawPrivateKey = document.getElementById('sk-input').value;
+				if (!rawPrivateKey) {
+					showAlert('transfer-alert', 'Missing Private Key', true);
+					return;
+				}
+				const privateKey = rawPrivateKey.replace('0x', '');
+
+				const payload = { ...currentPayload, privateKey };
 
 				try {
 					const res = await fetch('/l2/ui/sign-and-transfer', {
 						method: 'POST',
 						headers: { 'Content-Type': 'application/json' },
-						body: JSON.stringify({
-							privateKey,
-							tx_type,
-							to_x,
-							to_y,
-							amount,
-							fee: '1',
-							l1_address, // fixed fee mock
-						}),
+						body: JSON.stringify(payload),
 					});
 
 					const data = await res.json();
 					if (res.ok) {
-						logBox.innerText = `✅ TX ACCEPTED (Soft Finality).\nAmount: ${amount}\nFee: 1\nServer appended this to unproven transactions Mempool.`;
+						showAlert(
+							'transfer-alert',
+							`✅ TX ACCEPTED (Soft Finality).\nAmount: ${payload.amount}\nFee: ${payload.fee}\nServer appended this to unproven transactions Mempool.`,
+							false,
+						);
+						document.getElementById('tx-payload').style.display = 'none';
+						document.getElementById('btn-sign-send').style.display = 'none';
+						fetchNetworkState();
 					} else {
-						logBox.style.color = '#ef4444';
-						logBox.innerText = `❌ Error: ${data.error}`;
+						showAlert('transfer-alert', `❌ Error: ${data.error}`, true);
 					}
 				} catch (e) {
-					logBox.innerText = `❌ Network Error: Server unreachable`;
+					showAlert('transfer-alert', `❌ Network Error: Server unreachable`, true);
 				}
 			}
 
@@ -355,11 +508,31 @@
 					const res = await fetch('/l2/state');
 					const data = await res.json();
 					document.getElementById('net-root').innerText = data.state_root;
-					document.getElementById('net-deposit-id').innerText = data.last_processed_deposit_id;
 					document.getElementById('net-mempool').innerText = data.pending_transactions;
-					document.getElementById('net-accounts').innerText = JSON.stringify(data.accounts, null, 2);
+
+					const tbody = document.getElementById('accounts-body');
+					tbody.innerHTML = '';
+
+					for (const pubX in data.accounts) {
+						const acc = data.accounts[pubX];
+						const row = document.createElement('tr');
+						row.innerHTML = `
+							<td>${acc.index}</td>
+							<td style="color: var(--accent); font-weight: bold;">${acc.__user_name__ || 'Unknown'}</td>
+							<td>${acc.balance}</td>
+							<td>${acc.nonce}</td>
+							<td style="white-space: nowrap;">
+								<button class="btn" style="padding: 0.2rem 0.4rem; margin: 0 0.25rem 0 0; font-size: 0.65rem; width: auto; background: var(--surface); border: 1px solid var(--border);" onclick="navigator.clipboard.writeText('${pubX}'); alert('Copied PubX!')">Copy X</button>
+								<button class="btn" style="padding: 0.2rem 0.4rem; margin: 0; font-size: 0.65rem; width: auto; background: var(--surface); border: 1px solid var(--border);" onclick="navigator.clipboard.writeText('${acc.pub_y}'); alert('Copied PubY!')">Copy Y</button>
+							</td>
+						`;
+						tbody.appendChild(row);
+					}
 				} catch (e) {}
 			}
+
+			fetchNetworkState();
+			setInterval(fetchNetworkState, 3000);
 		</script>
 	</body>
 </html>

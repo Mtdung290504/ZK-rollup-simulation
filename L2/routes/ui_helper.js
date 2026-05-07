@@ -2,15 +2,65 @@ import express from 'express';
 import { l2Store } from '../db/index.js';
 import { getPoseidon, poseidonHashArr } from '../../tools/poseidon.js';
 import { getEddsa, verifyEdDSASignature } from '../lib/eddsa.js';
+import { buildBabyjub } from 'circomlibjs';
+
+let babyJub;
+buildBabyjub().then((b) => {
+	babyJub = b;
+});
 
 const router = express.Router();
+
+router.get('/fee', (req, res) => {
+	// Future: Fetch dynamic fee from config or state
+	res.json({ fee: '1' });
+});
 
 // Helper route for frontend UI since we don't have circomlib browser bundle
 router.post('/sign-and-transfer', async (req, res) => {
 	const { privateKey, tx_type, to_x, to_y, amount, fee, l1_address } = req.body;
 
-	if (!privateKey || !to_x || !amount || !fee) {
+	if (!privateKey || !to_x || !to_y || amount === undefined || fee === undefined) {
 		return res.status(400).json({ error: 'Missing parameters' });
+	}
+
+	if (fee.toString() !== '1') {
+		return res.status(400).json({ error: 'Invalid fee amount. Required L2 fee is 1.' });
+	}
+
+	if (privateKey.length !== 64) {
+		return res
+			.status(400)
+			.json({ error: 'Invalid EdDSA Private Key length. Must be 64 hex characters (32 bytes).' });
+	}
+
+	const isWithdraw = Number(tx_type) === 2;
+
+	if (isWithdraw) {
+		if (!l1_address) {
+			return res.status(400).json({ error: 'Missing L1 address for withdrawal' });
+		}
+		const evmRegex = /^0x[0-9a-fA-F]{40}$/;
+		if (!evmRegex.test(l1_address)) {
+			return res.status(400).json({
+				error: 'Invalid L1 Address format. Must be a 160-bit hex string starting with 0x (40 characters). Do not input private keys.',
+			});
+		}
+	}
+
+	if (babyJub) {
+		try {
+			const x = BigInt(to_x);
+			const y = BigInt(to_y);
+			const isValid = babyJub.inCurve([babyJub.F.e(x), babyJub.F.e(y)]);
+			if (!isValid) {
+				return res
+					.status(400)
+					.json({ error: 'Invalid Receiver Public Key: Point is not on the BabyJubJub curve.' });
+			}
+		} catch (e) {
+			return res.status(400).json({ error: 'Invalid Receiver Public Key format.' });
+		}
 	}
 
 	try {
@@ -29,7 +79,6 @@ router.post('/sign-and-transfer', async (req, res) => {
 		// 2. Lookup sender nonce in DB — accounts keyed by pub_x (O(1))
 		const db = l2Store.data;
 		const sender = db.accounts[from_x];
-
 		if (!sender) return res.status(400).json({ error: 'Sender not found in L2 State' });
 
 		const nonce = sender.nonce;
