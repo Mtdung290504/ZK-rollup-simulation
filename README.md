@@ -1,41 +1,47 @@
 # ZK-Rollup Simulator (Proof of Concept V1)
 
-Dự án này là một bản mô phỏng đầy đủ (End-to-End) của kiến trúc ZK-Rollup, bao gồm Smart Contract (L1), Sequencer (L2), Archive Node (DA Layer) và mạch ZK-SNARK (Plonk). Hệ thống triển khai các luồng hoạt động cốt lõi như Nạp tiền (Deposit), Chuyển tiền Soft-Finality (Transfer) và Rút tiền thủ công qua Merkle Proof (Manual Claim Withdraw) với mô hình **Trustless Data Availability (EIP-4844)**.
+Dự án này là một mô hình giả lập (Proof of Concept) kiến trúc ZK-Rollup. Hệ thống bao gồm các thành phần cơ bản: Smart Contract trên L1, Sequencer trên L2, Archive Node (đóng vai trò Data Availability), và mạch xác minh ZK-SNARK (sử dụng PLONK). Dự án mô phỏng luồng thực thi giao dịch cơ bản bao gồm nạp tiền, chuyển tiền nội bộ và rút tiền về L1 bằng Merkle Proof.
+
+## Documentation
+
+- [Thiết kế Hệ thống (System Design V1)](.des/v1/.system-design.md): Mô tả luồng dữ liệu, bất biến bảo mật và API reference.
+- [Đặc tả Mạch ZK-Rollup](ZK/circuits/prove_rollup/.readme.vn.md): Phân tích chi tiết các ràng buộc (constraints) của mạch Circom.
+- [Môi trường và Công cụ Proving](ZK/README.vn.md): Hướng dẫn thiết lập Circom, SnarkJS và script tự động tạo Bằng chứng (Proof).
 
 ---
 
-## Nhược điểm Thiết Kế Hiện Tại (Gas Inefficiency)
+## Các hạn chế của thiết kế hiện tại (V1)
 
-Mục đích chính của ZK-Rollup là chuyển toàn bộ gánh nặng tính toán và lưu trữ rời khỏi L1 (Off-chain) để tiết kiệm phí Gas. Tuy nhiên, trong phiên bản V1 này, kiến trúc Database của Smart Contract L1 (`L1/db/l1_db.json`) đang tồn tại cấu trúc lưu trữ sai nguyên tắc tối ưu:
+Mục tiêu cốt lõi của ZK-Rollup là dịch chuyển tính toán và lưu trữ ra khỏi L1 nhằm tối ưu hóa phí Gas. Tuy nhiên, kiến trúc lưu trữ của Smart Contract hiện tại (mô phỏng tại `L1/db/l1_db.json`) vẫn còn tồn tại các cấu trúc gây tốn kém phí Gas khi áp dụng vào môi trường thực tế:
 
 1. **Lưu trữ toàn bộ `batch_history` trên L1**:
-    - Hiện tại, mỗi khi thả một Batch mới, hệ thống đang `Push` thêm một Object (gồm `state_root`, `da_root`, `timestamp`) vào mảng Lịch sử Lô (Batch History) trên Smart Contract.
-    - **Vấn đề**: Thao tác `SSTORE` (Lưu data vĩnh viễn trên Storage Ethereum) tốn 20,000 Gas cho mỗi slot. Lưu mảng dài kỳ khiến tốn kém Gas vượt xa cả giới hạn phí giao dịch L1 thông thường, triệt tiêu hoàn toàn lợi ích kinh tế của L2.
+    - Mỗi khi L2 nộp một Batch mới, Smart Contract L1 sẽ thêm dữ liệu (state_root, da_root, timestamp) vào một mảng lưu trữ vĩnh viễn.
+    - **Hạn chế**: Trên EVM, thao tác ghi dữ liệu (`SSTORE`) tiêu tốn chi phí rất lớn (20,000 Gas/slot). Việc liên tục mở rộng mảng lưu trữ này sẽ làm tăng phí vận hành mạng lưới theo thời gian, đi ngược lại nguyên lý tiết kiệm chi phí của L2.
 
 2. **Lưu trữ toàn bộ hàng đợi `pending_deposits` trên L1**:
-    - Mọi khoản tiền gửi vào (Deposit) hiện đang được nối đuôi vào một mảng sự kiện (`Array`) để chờ Sequencer L2 bốc đi.
-    - **Vấn đề**: Giống hệt Batch History, việc mở rộng mảng này làm đội phí Gas Storage của User nạp tiền lên gấp hàng chục lần so với gửi ERC-20 bình thường.
+    - Khi có yêu cầu nạp tiền, Smart Contract L1 tiếp tục lưu trữ toàn bộ thông tin nạp tiền vào một mảng on-chain để chờ L2 xử lý.
+    - **Hạn chế**: Tương tự như mảng `batch_history`, việc lưu trữ này làm phí nạp tiền của mạng lưới L1 tăng cao.
 
-3. **Sai lệch Kiến Trúc Storage của EVM và Dữ liệu Mô Phỏng**:
-    - Hệ thống mô phỏng (PoC) hiện tại quản lý toàn bộ L1 bằng một cụm Object JSON phẳng (`l1_db.json`). Cấu trúc này không phản ánh chân thực thiết kế cấp thấp của Smart Contract trên Ethereum (EVM).
-    - **Vấn đề**: Thứ nhất, EVM Storage thực chất là một chuỗi các khe (Slot) 256-bit lưu trữ số nguyên, trong khi DB hiện tại lưu dưới dạng Nested JSON Objects (Tạo ảo giác về bộ nhớ động rẻ mạt). Thứ hai, hệ thống chưa tách biệt mảng **Dữ liệu Mô Phỏng Môi Trường L1** (Ví dụ: Số dư `vault` của mạng lưới Ethereum) với **Storage Cục Bộ** của riêng cái Smart Contract đó (`bridge_contract`). Sự lẫn lộn này dẫn đến việc khó phỏng đoán chính xác cấu trúc EVM Storage Tree (State Trie) khi compile sang Solidity.
+3. **Mô phỏng chưa phản ánh chính xác cấu trúc EVM Storage**:
+    - Kiến trúc cơ sở dữ liệu giả lập của L1 hiện tại đang sử dụng cấu trúc JSON lồng nhau.
+    - **Thực tế**: Storage của EVM là một tập hợp các khe bộ nhớ (slot) 256-bit. Sự thiếu nhất quán này sẽ gây khó khăn khi biên dịch lại logic sang ngôn ngữ Solidity.
 
 ---
 
-## Định hướng Phát triển (V2 - Hash Commitments)
+## Định hướng cấu trúc cho phiên bản tiếp theo (V2)
 
-### 1. Xóa bỏ Mảng `batch_history` -> Dùng "Rolling Hash" (Hoặc Merkle tree)
+### 1. Thay thế mảng `batch_history` bằng "Rolling Hash"
 
-- L1 Smart Contract **không lưu mảng Batch**. Thay vào đó, L1 chỉ nên lưu duy nhất 1 biến Hash cuối cùng (Ví dụ: `history_root = Hash(old_history_root, new_batch.da_root, new_batch.state_root)`).
-- Khi User muốn rút tiền từ một Batch cũ, User không chỉ nộp Merkle Proof của Giao dịch trong Batch, mà phải nộp kèm **Historical Merkle Proof** chứng minh rằng cái `da_root` của Batch đó có thuộc sự quản lý của cái `history_root` mã hóa trên L1 hay không. Trả lại việc tính toán lưu trữ History về tay người dùng off-chain.
+- L1 sẽ **không** lưu trữ toàn bộ mảng các Batch. Thay vào đó, L1 chỉ lưu trữ một giá trị Hash duy nhất đại diện cho toàn bộ lịch sử trạng thái (Ví dụ: `history_root = Hash(old_history_root, new_batch)`).
+- Khi có yêu cầu rút tiền từ một Batch trong quá khứ, quy trình rút tiền sẽ yêu cầu nộp kèm một **Historical Merkle Proof** để chứng minh cấu trúc Batch đó hợp lệ với `history_root` đang được lưu trên L1. Việc tính toán và lưu trữ lịch sử hoàn toàn được thực hiện ở môi trường off-chain.
 
-### 2. Xóa bỏ Mảng `pending_deposits` -> Dùng "Accumulator Hash" (Deposit Tree)
+### 2. Thay thế mảng `pending_deposits` bằng "Accumulator Hash"
 
-- L1 không lưu mảng thông tin Deposit. Mỗi khi có sự kiện Deposit, L1 chỉ tính trực tiếp `current_deposit_hash = Hash(current_deposit_hash, new_deposit_data)` rồi lưu lại con số băm duy nhất này, chèn thêm Event Logs (EVM Logs) để Sequencer tải.
-- EVM Logs (phát ra qua `emit Event`) rẻ hơn hàng chục lần so với lưu trữ `SSTORE`. Mạch ZK sẽ tự động thu thập (Accumulate) các Hash rời rạc đó và xác minh thẳng hàng (Operations Hash gốc).
+- Mảng nạp tiền cũng sẽ bị loại bỏ. L1 sẽ tính toán trực tiếp giá trị Hash của giao dịch nạp tiền gộp vào một Hash tổng (Accumulator Hash) và phát ra Event Log.
+- Event Log trên EVM có chi phí rẻ hơn rất nhiều so với thao tác ghi Storage. Sequencer sẽ đọc dữ liệu từ các Event Log này, và mạch ZK sẽ chịu trách nhiệm xác minh tính chính xác của quá trình tổng hợp dữ liệu nạp tiền.
 
-Hai thay đổi này tuy đòi hỏi thay đổi Mạch ZK và Schema DB, nhưng sẽ kéo phí Gas duy trì L1 của Rollup giảm (Không bị scale theo N).
+Thay đổi đề xuất giúp cố định phí duy trì L1, không bị tăng trưởng tuyến tính theo số lượng giao dịch, tuy nhiên sẽ yêu cầu thiết kế lại mạch ZK và hệ thống dữ liệu. Ngoài ra có thách thức về race condition khi chỉ dùng đúng 1 rolling hash. Hiện chưa có giải pháp hiệu quả ngoài lưu nhiều rolling hash. Tuy nhiên việc này sẽ làm tăng phí L1. Có thể cân nhắc sử dụng một số lượng storage trong phạm vi nào đó. Xóa bớt những cái ở quá xa. Thay đổi cơ chế rút tiền thành chủ động rút và trả về L1 từ L1 từ đó không cần lưu batch history để truy vấn nữa.
 
-### 3. Chuẩn hóa Cấu trúc Dữ liệu L1 (Tách biệt Storage & Simulation)
+### 3. Mô phỏng tốt hơn cấu trúc dữ liệu Storage của EVM
 
-- **Phân ranh giới Ngữ cảnh (Context Separation):** Trong phiên bản sau, cấu trúc File giả lập cần được chia ra hai không gian độc lập: `Blockchain_Environment` (bao gồm `vault` chứa Balance tài khoản L1, đóng vai trò như Ledger hệ thống) và `Contract_Storage` (Nơi chỉ chứa duy nhất State của Smart Contract rỗng, lưu trữ đè khít các Slot 256-bit).
+- `Contract_Storage` (chỉ chứa dữ liệu biến số trạng thái của Smart Contract, mô phỏng chính xác cấu trúc lưu trữ 256-bit).
