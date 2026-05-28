@@ -51,7 +51,7 @@ router.post('/batch/submit-proof', async (req, res) => {
 		db.system.last_proven_tx_index += transactions.length;
 		if (num_deposits) db.system.last_proven_deposit_id += Number(num_deposits);
 
-		// Ghi nhận mốc Account an toàn (Snapshot)
+		// Ghi nhận mốc Account an toàn (Snapshot) và đánh dấu proven_in_tree
 		if (snapshot_updates) {
 			for (const [pub_x, snap] of Object.entries(snapshot_updates)) {
 				if (db.accounts[pub_x]) {
@@ -59,8 +59,14 @@ router.post('/batch/submit-proof', async (req, res) => {
 						balance: snap.balance.toString(),
 						nonce: snap.nonce.toString(),
 					};
+					db.accounts[pub_x].proven_in_tree = true;
 				}
 			}
+		}
+
+		// Lưu lại trạng thái cây Merkle sau batch — dùng cho lần prove tiếp theo
+		if (req.body.merkle_tree_nodes) {
+			db.system.merkle_tree = { nodes: req.body.merkle_tree_nodes };
 		}
 
 		await l2Store.write();

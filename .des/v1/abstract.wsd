@@ -1,0 +1,23 @@
+@startuml
+' Dùng linetype ortho để đường nối vuông góc, không bị vồng
+skinparam linetype ortho
+skinparam nodesep 60
+skinparam ranksep 80
+
+component "L1 Server\n(Smart Contract)" as L1
+component "L2 Server\n(Sequencer)" as L2
+component "Archive Node\n(DA)" as DA
+component "Frontend\n(Client)" as UI
+
+' Sắp xếp theo tầng: L1 trên cùng, L2 giữa, UI/DA dưới
+L1 -down-> L2 : Sync Deposits
+L2 -up-> L1 : Submit Batch (Proof + Roots)
+L2 -right-> DA : Publish DA Blobs
+
+UI -left-> DA : Fetch Blobs
+UI -up-> L1 : Claim Withdrawal
+UI <-> L2 : Gửi TX / Soft Finality
+
+' Mẹo: Dùng đường ẩn để ép UI và DA nằm ngang hàng nhau dưới L2
+UI -[hidden]right- DA
+@enduml

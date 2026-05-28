@@ -1,12 +1,6 @@
 import express from 'express';
 import { l2Store } from '../db/index.js';
-import { getPoseidon, poseidonHashArr } from '../../tools/poseidon.js';
-import { DenseMerkleTree } from '../../tools/merkle_tree.js';
-import fs from 'fs';
-import path from 'path';
 
-const cachePath = path.join(process.cwd(), 'ZK', 'circuits', 'zero_hashes_cache.json');
-const WALLETS_PATH = path.join(process.cwd(), 'config', 'wallets.json');
 const router = express.Router();
 
 router.get('/sync-deposits', async (req, res) => {
@@ -30,24 +24,11 @@ router.get('/sync-deposits', async (req, res) => {
 			return res.status(200).json({ message: 'L2 is already synced with L1. No new deposits.' });
 		}
 
-		const poseidon = await getPoseidon();
-		const wallets = JSON.parse(fs.readFileSync(WALLETS_PATH, 'utf8'));
-		const TREASURY_PUB_X = '0x' + BigInt(wallets.treasury.l2.publicKey.x).toString(16);
-
-		const tree = new DenseMerkleTree(poseidon, 4, cachePath);
-		tree.loadNodes(db.system.merkle_tree.nodes);
-
-		// accounts keyed by pub_x — lấy Treasury bằng key trực tiếp
+		// Lấy Treasury từ L2 DB (key là pub_x, luôn có sẵn từ init_db)
+		const TREASURY_PUB_X = Object.entries(db.accounts).find(([, v]) => v.__user_name__ === 'Treasury')?.[0];
+		if (!TREASURY_PUB_X) return res.status(500).json({ error: 'Treasury account not found in L2 DB' });
 		let treasury = db.accounts[TREASURY_PUB_X];
 		let syncCount = 0;
-
-		/**
-		 * Hash lá Merkle từ pub_x (key) và data của account
-		 * @param {string} pub_x
-		 * @param {{ pub_y: string, balance: string, nonce: string }} acc
-		 */
-		const hashLeaf = (pub_x, acc) =>
-			poseidonHashArr(poseidon, [BigInt(pub_x), BigInt(acc.pub_y), BigInt(acc.balance), BigInt(acc.nonce)]);
 
 		// 3. Process new deposits
 		for (const deposit of new_deposits) {
@@ -55,7 +36,7 @@ router.get('/sync-deposits', async (req, res) => {
 
 			// Lookup bằng pub_x — O(1) nhờ key mới
 			if (!db.accounts[l2_pub_x]) {
-				// Onboard dynamically nếu chưa tồn tại
+				// Onboard dynamically — account này CHƯА được prove, chỉ nhận soft finality
 				const newIndex = Object.keys(db.accounts).length;
 				db.accounts[l2_pub_x] = {
 					pub_y: l2_pub_y,
@@ -63,10 +44,8 @@ router.get('/sync-deposits', async (req, res) => {
 					nonce: '0',
 					index: newIndex,
 					__user_name__: null,
-					snapshot: {
-						balance: '0',
-						nonce: '0',
-					},
+					proven_in_tree: false,
+					snapshot: { balance: '0', nonce: '0' },
 				};
 				console.log(
 					`[L2/Sync] Onboarded new L2 user at index ${newIndex} (pub_x: ${l2_pub_x.slice(0, 10)}...)`,
@@ -76,13 +55,11 @@ router.get('/sync-deposits', async (req, res) => {
 			const receiver = db.accounts[l2_pub_x];
 			const amt = BigInt(amount);
 
-			// Soft Finality: Treasury → Receiver
+			// Soft Finality: cập nhật balance/nonce — chưa thấy trên proven tree
 			treasury.balance = (BigInt(treasury.balance) - amt).toString();
 			treasury.nonce = (BigInt(treasury.nonce) + 1n).toString();
-			tree.updateLeaf(treasury.index, hashLeaf(TREASURY_PUB_X, treasury));
 
 			receiver.balance = (BigInt(receiver.balance) + amt).toString();
-			tree.updateLeaf(receiver.index, hashLeaf(l2_pub_x, receiver));
 
 			// Append TX (Using dummy sig for Treasury deposit)
 			const tx = {
@@ -107,7 +84,7 @@ router.get('/sync-deposits', async (req, res) => {
 			syncCount++;
 		}
 
-		db.system.merkle_tree.nodes = tree.exportNodes();
+		// Không cập nhật merkle_tree.nodes — chỉ batch_prove mới được viết vào proven tree
 		await l2Store.write();
 
 		console.log(`[L2/Sync] Synced ${syncCount} deposits from L1.`);

@@ -1,6 +1,4 @@
 /**
- * tools/batch_prove.js
- *
  * Chạy thủ công để đóng Lô (Batch) trên L2, sinh Proof cục bộ, rồi nạp Proof vào hệ thống.
  *
  * 1. Snapshot giao dịch chưa Prove từ L2 state (cắt đúng N_TXS hoặc padding)
@@ -8,6 +6,9 @@
  * 3. Chạy quá trình sinh ZK-Proof (Plonk) cục bộ tương tự luồng prove/index.js
  * 4. Submit Proof + DA Blob + PublicSignals lên API `POST /l2/batch/submit-proof`
  *    để Sequencer đẩy lên L1 + Archive.
+ *
+ * Note: trong hệ thống thực tế, thường chức năng này chạy tự động nhưng với trình bày cần demo chủ động\
+ * nên script này chạy tay để dễ demo + kiểm soát tốt hơn.
  */
 
 import fs from 'fs';
@@ -63,40 +64,42 @@ async function main() {
 	const F = poseidon.F;
 
 	const tree = new DenseMerkleTree(poseidon, CONFIG.DEPTH, CACHE_PATH);
+
+	// wallets.json chỉ đọc cho 2 mục đích: treasury private key và operator L1 address.
 	const wallets = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'wallets.json'), 'utf8'));
 
 	let simAccounts = {};
 	for (const [pub_x, acc] of Object.entries(l2_db.accounts)) {
-		if (acc.snapshot) {
-			simAccounts[pub_x] = {
-				pub_y: acc.pub_y,
-				balance: BigInt(acc.snapshot.balance),
-				nonce: BigInt(acc.snapshot.nonce),
-				index: acc.index,
-			};
-		} else {
-			// Fallback (nên luôn có nếu init_db/sync chạy đúng)
-			simAccounts[pub_x] = {
-				pub_y: acc.pub_y,
-				balance: 0n,
-				nonce: 0n,
-				index: acc.index,
-			};
+		const isProven = acc.proven_in_tree !== false;
+		simAccounts[pub_x] = {
+			pub_y: acc.pub_y,
+			balance: isProven ? BigInt(acc.snapshot?.balance ?? '0') : 0n,
+			nonce: isProven ? BigInt(acc.snapshot?.nonce ?? '0') : 0n,
+			index: acc.index,
+			is_new: !isProven,
+		};
+	}
+
+	// hashLeaf: tài khoản mới (chưa prove) dùng empty leaf Poseidon(0,0,0,0)
+	const hashLeaf = (pub_x, acc) => {
+		if (acc.is_new) return poseidonHashArr(poseidon, [0n, 0n, 0n, 0n]);
+		return poseidonHashArr(poseidon, [BigInt(pub_x), BigInt(acc.pub_y), acc.balance, acc.nonce]);
+	};
+
+	// Chỉ insert các tài khoản đã prove vào cây — tài khoản mới để slot rỗng (zero leaf)
+	for (const [pub_x, acc] of Object.entries(simAccounts)) {
+		if (!acc.is_new) {
+			tree.updateLeaf(acc.index, hashLeaf(pub_x, acc));
 		}
 	}
 
-	// hashLeaf nhận pub_x từ key (không có trong value nữa)
-	const hashLeaf = (pub_x, acc) =>
-		poseidonHashArr(poseidon, [BigInt(pub_x), BigInt(acc.pub_y), acc.balance, acc.nonce]);
-
-	for (const [pub_x, acc] of Object.entries(simAccounts)) {
-		tree.updateLeaf(acc.index, hashLeaf(pub_x, acc));
-	}
-
-	// KHÔNG CẦN CHẠY O(N) VÒNG LẶP TRANSACTION NỮA
-	// simAccounts (proven_accounts) chính là State hiện tại ngay trước khi Proof batch mới
-
 	const oldStateRoot = tree.getRoot();
+	// Kiểm tra khớp với L1 — nếu không, dừng sớm thay vì phí gas
+	if (oldStateRoot !== l1_contract.current_state_root) {
+		console.error(`[Batch Prover] ROOT MISMATCH! Tính được: ${oldStateRoot}`);
+		console.error(`[Batch Prover] L1 mong đợi:   ${l1_contract.current_state_root}`);
+		process.exit(1);
+	}
 
 	const getPath = (index) => {
 		let addrBits = BigInt(index).toString(2).padStart(CONFIG.DEPTH, '0').split('').reverse().map(Number);
@@ -193,15 +196,16 @@ async function main() {
 		}
 
 		let receiverPath = getPath(r.index);
-		inputJson.receiver_pubKey_x.push(isPadding ? '0' : tx.to_x);
-		inputJson.receiver_pubKey_y.push(r.pub_y);
-		inputJson.receiver_balances.push(r.balance.toString());
-		inputJson.receiver_nonces.push(r.nonce.toString());
+		inputJson.receiver_pubKey_x.push(r.is_new ? '0' : isPadding ? tx.from_x : tx.to_x);
+		inputJson.receiver_pubKey_y.push(r.is_new ? '0' : r.pub_y);
+		inputJson.receiver_balances.push(r.is_new ? '0' : r.balance.toString());
+		inputJson.receiver_nonces.push(r.is_new ? '0' : r.nonce.toString());
 		inputJson.receiver_pathElements.push(receiverPath.pathElements);
 		inputJson.receiver_pathIndices.push(receiverPath.pathIndices);
 
 		if (enabled === 1n) {
 			r.balance = r.balance + amount;
+			r.is_new = false;
 			tree.updateLeaf(r.index, hashLeaf(tx.to_x, r));
 			cumulativeFee += fee;
 		}
@@ -355,6 +359,7 @@ async function main() {
 		num_deposits: numDeposits,
 		transactions: availableTxs,
 		snapshot_updates: simAccounts,
+		merkle_tree_nodes: tree.exportNodes(),
 		operator_address: wallets.operator.l1.address,
 	};
 

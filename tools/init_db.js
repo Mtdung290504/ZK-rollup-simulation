@@ -55,6 +55,7 @@ async function main() {
 				nonce: '0',
 				index,
 				__user_name__: userName ?? null,
+				proven_in_tree: true,
 				snapshot: {
 					balance,
 					nonce: '0',

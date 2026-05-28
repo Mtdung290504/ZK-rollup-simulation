@@ -105,7 +105,6 @@ router.post('/transfer', async (req, res) => {
 		// For simplicity we let Batch Prover handle it as defined in Sequencer script.
 		// However, for consistency of L2 state query we should update Treasury or Operator here.
 		// Assuming Operator index = 3, we update Operator balance
-		// 5c. Fee goes to Operator
 		const operator = db.accounts[OPERATOR_PUB_X];
 		if (operator && f > 0n) {
 			operator.balance = (BigInt(operator.balance) + f).toString();

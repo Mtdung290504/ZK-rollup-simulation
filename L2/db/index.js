@@ -10,6 +10,7 @@ const l2Schema = SDO.schema({
 			nonce: 'string',
 			index: 'number',
 			__user_name__: 'string?',
+			proven_in_tree: 'boolean?',
 			snapshot: {
 				balance: 'string',
 				nonce: 'string',
